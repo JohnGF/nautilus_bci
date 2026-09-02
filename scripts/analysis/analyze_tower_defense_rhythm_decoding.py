@@ -131,6 +131,36 @@ def extract_session_epochs(clean_eeg, df_events, ses_id, sfreq=250.0, win_len_s=
     
     epochs_im, epochs_lis, epochs_blk, labels, meta = [], [], [], [], []
     
+    # 1. Check if this is a continuous music listening session (e.g., bids_listening)
+    is_music_session = any('Track_Start_id_' in str(ev.get('trial_type', '')) for ev in events_list)
+    if is_music_session:
+        track_map = {
+            'Beethoven_Fur_Elise': ('FIRE', 0, 187.068, 416.464),
+            'Bach_Prelude': ('WATER', 1, 48.98, 182.068),
+            'Vivaldi_Spring': ('WIND', 2, 1469.64, 1664.745),
+            'Tchaikovsky_Waltz': ('ELECTRICITY', 3, 1013.272, 1464.632)
+        }
+        for track_key, (el_name, cls_id, t_start, t_end) in track_map.items():
+            s_start = int((t_start + 2.0) * sfreq)
+            s_end = int((t_end - 2.0) * sfreq)
+            step_samp = int(3.0 * sfreq)
+            for s in range(s_start, s_end - n_samples_win, step_samp):
+                if s + n_samples_win <= len(clean_eeg):
+                    ep = clean_eeg[s : s + n_samples_win, :].T
+                    epochs_im.append(ep)
+                    epochs_lis.append(ep)
+                    epochs_blk.append(ep)
+                    labels.append(cls_id)
+                    meta.append({
+                        'session': str(ses_id),
+                        'element': el_name,
+                        'class_id': cls_id,
+                        'imagine_sample': s,
+                        'listen_sample': s
+                    })
+        return np.array(epochs_im), np.array(epochs_lis), np.array(epochs_blk), np.array(labels), pd.DataFrame(meta), class_names
+
+    # 2. Standard Tower Defense session with trials
     for i, ev in enumerate(events_list):
         tt = str(ev.get('trial_type', ''))
         if 'selected' in tt:
@@ -539,22 +569,33 @@ def run_tower_defense_rhythm_analysis(
     
     sub_clean = sub_id.replace("sub-", "")
     
-    # 1. Discover sessions
-    available_ses = find_available_sessions(bids_root, sub_clean)
-    if ses_id == "all":
-        target_sessions = available_ses
-    else:
-        target_sessions = [s.strip().replace("ses-", "") for s in ses_id.split(",")]
+    # 1. Discover sessions (support multiple BIDS roots separated by comma)
+    bids_root_list = [p.strip() for p in bids_root.split(",") if p.strip()]
+    
+    session_tuples = []  # (bids_dir, ses_clean, display_name)
+    for b_root in bids_root_list:
+        sub_dir = os.path.join(b_root, f"sub-{sub_clean}")
+        if not os.path.exists(sub_dir):
+            continue
+        discovered = find_available_sessions(b_root, sub_clean)
+        for s in discovered:
+            if ses_id == "all" or s in [x.strip().replace("ses-", "") for x in ses_id.split(",")]:
+                b_name = os.path.basename(os.path.normpath(b_root))
+                disp = f"{b_name}_ses-{s}" if len(bids_root_list) > 1 else f"ses-{s}"
+                session_tuples.append((b_root, s, disp))
+                
+    if not session_tuples:
+        raise FileNotFoundError(f"No matching sessions found in {bids_root} for sub-{sub_clean}")
         
     print(f"[*] Subject: sub-{sub_clean}")
-    print(f"[*] Discovered {len(available_ses)} sessions in dataset: {available_ses}")
-    print(f"[*] Target Sessions for Analysis ({len(target_sessions)}): {target_sessions}")
+    print(f"[*] BIDS Roots ({len(bids_root_list)}): {bids_root_list}")
+    print(f"[*] Target Sessions for Analysis ({len(session_tuples)}): {[t[2] for t in session_tuples]}")
     
     # Determine output folder
-    if len(target_sessions) == 1:
-        session_out_dir = os.path.join(out_dir, f"sub-{sub_clean}_ses-{target_sessions[0]}")
+    if len(session_tuples) == 1:
+        session_out_dir = os.path.join(out_dir, f"sub-{sub_clean}_{session_tuples[0][2]}")
     else:
-        session_out_dir = os.path.join(out_dir, f"sub-{sub_clean}_pooled_{len(target_sessions)}sessions")
+        session_out_dir = os.path.join(out_dir, f"sub-{sub_clean}_pooled_{len(session_tuples)}sessions")
     os.makedirs(session_out_dir, exist_ok=True)
     
     # 2. Load & Pool Data across all target sessions
@@ -562,18 +603,18 @@ def run_tower_defense_rhythm_analysis(
     class_names = ['FIRE', 'WATER', 'WIND', 'ELECTRICITY']
     sfreq = 250.0
     
-    for ses in target_sessions:
-        print(f"\n---> Loading & Preprocessing Session ses-{ses}...")
-        raw_uv, df_events, sfreq, ch_names = load_single_session_raw(bids_root, sub_clean, ses)
+    for b_root, ses, disp in session_tuples:
+        print(f"\n---> Loading & Preprocessing Session {disp} ({b_root})...")
+        raw_uv, df_events, sfreq, ch_names = load_single_session_raw(b_root, sub_clean, ses)
         clean_eeg = preprocess_continuous_eeg(raw_uv, sfreq=sfreq, l_freq=1.0, h_freq=45.0, notch_freq=50.0, spatial_mode="robust_car", ch_names=ch_names)
-        X_im, X_lis, X_blk, y, df_meta, _ = extract_session_epochs(clean_eeg, df_events, ses_id=ses, sfreq=sfreq, win_len_s=win_len_s)
+        X_im, X_lis, X_blk, y, df_meta, _ = extract_session_epochs(clean_eeg, df_events, ses_id=disp, sfreq=sfreq, win_len_s=win_len_s)
         
-        print(f"     [+] ses-{ses}: Extracted {len(y)} trials {dict(pd.Series(y).value_counts())}")
+        print(f"     [+] {disp}: Extracted {len(y)} trials {dict(pd.Series(y).value_counts())}")
         all_X_im.append(X_im)
         all_X_lis.append(X_lis)
         all_X_blk.append(X_blk)
         all_y.append(y)
-        all_session_ids.extend([ses] * len(y))
+        all_session_ids.extend([disp] * len(y))
         
     X_im_pooled = np.concatenate(all_X_im, axis=0)
     X_lis_pooled = np.concatenate(all_X_lis, axis=0)
@@ -582,7 +623,7 @@ def run_tower_defense_rhythm_analysis(
     session_ids_arr = np.array(all_session_ids)
     
     print("\n" + "=" * 80)
-    print(f" TOTAL POOLED DATASET SUMMARY: {len(y_pooled)} TRIALS ACROSS {len(target_sessions)} SESSION(S) ".center(80, "="))
+    print(f" TOTAL POOLED DATASET SUMMARY: {len(y_pooled)} TRIALS ACROSS {len(session_tuples)} SESSION(S) ".center(80, "="))
     print(f" Class Breakdown: {dict(pd.Series(y_pooled).value_counts())}")
     print(f" Epoch Shape: {X_im_pooled.shape}")
     print("=" * 80)
@@ -599,7 +640,7 @@ def run_tower_defense_rhythm_analysis(
     
     # 4. Leave-One-Session-Out Cross-Validation (if > 1 session)
     loso_results = None
-    if len(target_sessions) > 1:
+    if len(session_tuples) > 1:
         print("\n[*] Computing Leave-One-Session-Out (LOSO) Cross-Validation...")
         loso_results = evaluate_loso_cross_validation(X_im_pooled, y_pooled, session_ids_arr, sfreq=sfreq)
         if loso_results:
@@ -645,7 +686,7 @@ def run_tower_defense_rhythm_analysis(
     ax.axhline(25.0, color='#e67e22', linestyle='--', linewidth=2.0, label='Chance Level (25.0%)')
     ax.axhline(transfer_acc, color='#9b59b6', linestyle=':', linewidth=2.0, label=f'Transfer (Listen->Imagine): {transfer_acc:.1f}%')
     ax.set_ylabel('Decoding Accuracy (%)', fontsize=12, fontweight='bold')
-    ax.set_title(f'BCI Tower Defense 4-Class Rhythm Decoding Performance\n(sub-{sub_clean} | {len(y_pooled)} Pooled Trials across {len(target_sessions)} Session(s))', fontsize=13, fontweight='bold', pad=15)
+    ax.set_title(f'BCI Tower Defense 4-Class Rhythm Decoding Performance\n(sub-{sub_clean} | {len(y_pooled)} Pooled Trials across {len(session_tuples)} Session(s))', fontsize=13, fontweight='bold', pad=15)
     ax.set_xticks(x)
     ax.set_xticklabels([name for name, _ in models_plot], fontsize=10, fontweight='bold', rotation=15, ha='right')
     ax.set_ylim(0, 65)
@@ -684,10 +725,11 @@ def run_tower_defense_rhythm_analysis(
     plt.close(fig)
     
     # Master JSON Summary Export
+    target_names = [t[2] for t in session_tuples]
     master_summary = {
         'subject': sub_clean,
-        'sessions_analyzed': target_sessions,
-        'n_sessions': len(target_sessions),
+        'sessions_analyzed': target_names,
+        'n_sessions': len(session_tuples),
         'n_total_trials': len(y_pooled),
         'class_names': class_names,
         'chance_accuracy': 0.25,

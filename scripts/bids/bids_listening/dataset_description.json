@@ -1,0 +1,16 @@
+{
+    "Name": "Motor Imagery Left/Right BCI Dataset",
+    "BIDSVersion": "1.8.0",
+    "DatasetType": "raw",
+    "Authors": [
+        "BCI Experimenter"
+    ],
+    "HowToAcknowledge": "Recorded via g.Nautilus LSL & BIDS Recorder Suite",
+    "GeneratedBy": [
+        {
+            "Name": "MNE-BIDS",
+            "Version": "0.19.0",
+            "CodeURL": "https://mne.tools/mne-bids/"
+        }
+    ]
+}
