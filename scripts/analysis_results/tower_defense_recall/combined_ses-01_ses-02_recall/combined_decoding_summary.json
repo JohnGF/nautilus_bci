@@ -1,0 +1,72 @@
+{
+    "dataset": "bids_tower_defense",
+    "subject": "01",
+    "sessions": [
+        "1",
+        "2"
+    ],
+    "condition": "recall",
+    "total_trials": 91,
+    "session_trial_counts": {
+        "ses-01": 83,
+        "ses-02": 8
+    },
+    "class_distribution": {
+        "FIRE": 24,
+        "WATER": 24,
+        "WIND": 24,
+        "ELECTRICITY": 19
+    },
+    "pooled_cv_benchmark": {
+        "Riemannian TS + LogReg": {
+            "accuracy_mean": 0.19649122807017547,
+            "accuracy_std": 0.10471592648233632,
+            "balanced_acc": 0.19846491228070176,
+            "f1_macro": 0.19553373675051414
+        },
+        "Riemannian TS + SVM (RBF)": {
+            "accuracy_mean": 0.28479532163742693,
+            "accuracy_std": 0.12566433701579688,
+            "balanced_acc": 0.2708333333333333,
+            "f1_macro": 0.23110661268556007
+        },
+        "Riemannian MDM": {
+            "accuracy_mean": 0.2637426900584795,
+            "accuracy_std": 0.06455038468559827,
+            "balanced_acc": 0.26096491228070173,
+            "f1_macro": 0.2531485128515881
+        },
+        "One-vs-Rest CSP + LDA": {
+            "accuracy_mean": 0.2514619883040935,
+            "accuracy_std": 0.06822333606123922,
+            "balanced_acc": 0.24232456140350878,
+            "f1_macro": 0.17961795100645028
+        },
+        "Bandpower + Random Forest": {
+            "accuracy_mean": 0.308187134502924,
+            "accuracy_std": 0.08451455837672954,
+            "balanced_acc": 0.2944078947368421,
+            "f1_macro": 0.27312459884027873
+        },
+        "PyTorch EEGNet DL": {
+            "accuracy_mean": 0.21929824561403505,
+            "accuracy_std": 0.07669518741873685,
+            "balanced_acc": 0.2192982456140351,
+            "f1_macro": 0.22201404690932353
+        }
+    },
+    "cross_session_transfer": {
+        "Riemannian TS + LogReg": {
+            "accuracy": 0.25,
+            "f1_macro": 0.1
+        },
+        "Riemannian MDM": {
+            "accuracy": 0.375,
+            "f1_macro": 0.2777777777777778
+        },
+        "Bandpower + Random Forest": {
+            "accuracy": 0.375,
+            "f1_macro": 0.2777777777777778
+        }
+    }
+}

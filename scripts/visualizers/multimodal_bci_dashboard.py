@@ -193,6 +193,18 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
         self.combo_spatial_ref.setStyleSheet("background-color: #191E2A; color: #4DEEEA; font-weight: bold; padding: 4px 8px; border: 1px solid #2C354A; border-radius: 4px;")
         top_layout.addWidget(self.combo_spatial_ref)
 
+        # Dynamic Temporal Filter Selector (Anti-Drift / Baseline Control)
+        top_layout.addWidget(QtWidgets.QLabel("Filter Preset:"))
+        self.combo_temp_filter = QtWidgets.QComboBox()
+        self.combo_temp_filter.addItem("Dry Anti-Drift (3-45 Hz)", (3.0, 45.0, 4))
+        self.combo_temp_filter.addItem("Motor SMR BCI (8-30 Hz)", (8.0, 30.0, 4))
+        self.combo_temp_filter.addItem("Wideband (1-45 Hz)", (1.0, 45.0, 2))
+        self.combo_temp_filter.addItem("Ultra High-Pass (4-45 Hz)", (4.0, 45.0, 4))
+        self.combo_temp_filter.addItem("None (Raw Unfiltered)", None)
+        self.combo_temp_filter.setStyleSheet("background-color: #191E2A; color: #4DEEEA; font-weight: bold; padding: 4px 8px; border: 1px solid #2C354A; border-radius: 4px;")
+        self.combo_temp_filter.currentIndexChanged.connect(self.update_temporal_filter)
+        top_layout.addWidget(self.combo_temp_filter)
+
         self.btn_streamer = QtWidgets.QPushButton("▶ Launch Hardware EEG Streamer")
         self.btn_streamer.setStyleSheet("background-color: #2980B9; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
         self.btn_streamer.clicked.connect(self.toggle_eeg_streamer)
@@ -363,7 +375,11 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
             self.btn_streamer.setText("⏹ Stop Hardware Streamer")
             self.btn_streamer.setStyleSheet("background-color: #C0392B; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
         else:
-            self.streamer_process.terminate()
+            try:
+                self.streamer_process.terminate()
+                self.streamer_process.wait(timeout=2.0)
+            except Exception:
+                self.streamer_process.kill()
             self.streamer_process = None
             self.btn_streamer.setText("▶ Launch Hardware EEG Streamer")
             self.btn_streamer.setStyleSheet("background-color: #2980B9; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
@@ -489,64 +505,76 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
             self.render_watch_tab()
 
     def render_headmap_tab(self):
-        # Apply bandpass (AC component) to assess electrode scalp coupling independently of DC offset
-        ac_eeg = self.eeg_buffer - np.mean(self.eeg_buffer, axis=0)
-        try:
-            ac_eeg = signal.filtfilt(self.b_bp, self.a_bp, ac_eeg, axis=0)
-        except Exception:
-            pass
+        # 1. Apply spatial reference (Robust CAR in Dry mode) so raw common baseline drift doesn't trigger false alarms
+        is_dry = (self.combo_cap_type.currentData() == "dry")
+        ref_mode = "robust_car" if is_dry else (self.combo_spatial_ref.currentData() or "car")
+        ref_eeg = apply_spatial_filter(self.eeg_buffer, self.eeg_ch_names, mode=ref_mode, cap_type="dry" if is_dry else "wet")
+
+        # 2. AC bandpass for variance calculation
+        ac_eeg = ref_eeg - np.mean(ref_eeg, axis=0)
+        if self.b_bp is not None and self.a_bp is not None:
+            try:
+                ac_eeg = signal.filtfilt(self.b_bp, self.a_bp, ac_eeg, axis=0)
+            except Exception:
+                pass
 
         stds = np.std(ac_eeg, axis=0)
         ranges = np.ptp(ac_eeg, axis=0)
 
         channel_stds = {}
         channel_maxs = {}
+        channel_status_colors = {}
         good_count = 0
         flat_count = 0
-        is_dry = (self.combo_cap_type.currentData() == "dry")
 
-        # Thresholds adapted for dry pins vs wet gel
-        rail_mean_thresh = 600.0 if is_dry else 300.0
-        rail_ptp_thresh = 1000.0 if is_dry else 500.0
-        noise_std_thresh = 120.0 if is_dry else 80.0
-
-        # Raw metrics directly from API buffer (DC offset & true raw range)
-        raw_offsets = np.mean(self.eeg_buffer, axis=0)
-        raw_ptps = np.ptp(self.eeg_buffer, axis=0)
+        # Realistic dry pin thresholds:
+        # - Truly disconnected / dead flat: std < 0.1 uV
+        # - Noise / high motion artifact: std > 180 uV for dry, 90 uV for wet
+        noise_std_thresh = 180.0 if is_dry else 90.0
 
         for i, name in enumerate(self.eeg_ch_names[:-1]):
             std_val = stds[i]
             ptp_val = ranges[i]
-            raw_dc = raw_offsets[i]
-            raw_p2p = raw_ptps[i]
 
             channel_stds[name] = std_val
             channel_maxs[name] = ptp_val
 
             item_val = self.table_quality.item(i, 1)
             if item_val:
-                item_val.setText(f"DC: {raw_dc:+.1f} uV | Raw p-p: {raw_p2p:.1f} uV | AC RMS: {std_val:.1f} uV")
+                item_val.setText(f"RMS: {std_val:.1f} uV | Peak-to-Peak: {ptp_val:.1f} uV")
 
-            if std_val < 0.2:
-                item = QtWidgets.QTableWidgetItem("NO CONTACT / FLAT")
-                item.setForeground(QtGui.QColor("#E74C3C"))
+            item_status = self.table_quality.item(i, 2)
+            if item_status is None:
+                item_status = QtWidgets.QTableWidgetItem()
+                self.table_quality.setItem(i, 2, item_status)
+
+            if std_val < 0.1 or ptp_val < 0.1:
+                item_status.setText("DISCONNECTED / FLAT")
+                item_status.setForeground(QtGui.QColor("#E74C3C"))
+                channel_status_colors[name] = QtGui.QColor("#E74C3C")
                 flat_count += 1
-            elif abs(raw_dc) > (rail_mean_thresh * 1000.0) or raw_p2p > (rail_ptp_thresh * 1000.0):
-                item = QtWidgets.QTableWidgetItem("RAILED/SATURATED")
-                item.setForeground(QtGui.QColor("#E67E22"))
             elif std_val > noise_std_thresh:
-                item = QtWidgets.QTableWidgetItem("HIGH NOISE / ARTIFACT")
-                item.setForeground(QtGui.QColor("#F1C40F"))
+                item_status.setText("HIGH NOISE / ARTIFACT")
+                item_status.setForeground(QtGui.QColor("#F1C40F"))
+                channel_status_colors[name] = QtGui.QColor("#F1C40F")
             else:
-                item = QtWidgets.QTableWidgetItem("POSITIONED / OK")
-                item.setForeground(QtGui.QColor("#2ECC71"))
+                item_status.setText("POSITIONED / OK")
+                item_status.setForeground(QtGui.QColor("#2ECC71"))
+                channel_status_colors[name] = QtGui.QColor("#2ECC71")
                 good_count += 1
 
-            self.table_quality.setItem(i, 2, item)
-
-        self.headmap_canvas.update_channel_status(channel_stds, channel_maxs)
+        self.headmap_canvas.update_channel_status(channel_stds, channel_maxs, status_colors=channel_status_colors)
         cap_name = "Dry (SAHARA)" if is_dry else "Wet"
         self.lbl_headmap_summary.setText(f"Active Channels ({cap_name}): {good_count}/32 Positioned ({flat_count} Disconnected)")
+
+    def update_temporal_filter(self):
+        preset = self.combo_temp_filter.currentData()
+        if preset is not None:
+            low_hz, high_hz, order = preset
+            nyq = 0.5 * self.fs_eeg
+            self.b_bp, self.a_bp = signal.butter(order, [low_hz / nyq, high_hz / nyq], btype='band')
+        else:
+            self.b_bp, self.a_bp = None, None
 
     def render_waves_tab(self):
         # 1. Apply selected Spatial Reference (Robust CAR, Surface Laplacian, Standard CAR, or Raw)
@@ -554,11 +582,12 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
         cap_mode = self.combo_cap_type.currentData() or "wet"
         filt = apply_spatial_filter(self.eeg_buffer, self.eeg_ch_names, mode=ref_mode, cap_type=cap_mode)
 
-        # 2. Apply Temporal Bandpass Filter
-        try:
-            filt = signal.filtfilt(self.b_bp, self.a_bp, filt, axis=0)
-        except Exception:
-            pass
+        # 2. Apply Temporal Bandpass Filter (if not None)
+        if self.b_bp is not None and self.a_bp is not None:
+            try:
+                filt = signal.filtfilt(self.b_bp, self.a_bp, filt, axis=0)
+            except Exception:
+                pass
 
         spacing = max(20.0, np.std(filt) * 3.5)
         offsets = [0, spacing, spacing * 2, spacing * 3, spacing * 4]
@@ -572,12 +601,24 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
         self.plot_waves.setYRange(-spacing * 0.8, spacing * 4.8)
 
         if len(filt) >= 64:
-            fft_vals = np.abs(np.fft.rfft(filt, axis=0))
+            # Multi-channel average across target channels (Cz, C3, C4, O1, O2)
+            target_indices = [self.eeg_ch_names.index(n) for n in self.target_wave_channels if n in self.eeg_ch_names]
+            roi_data = filt[:, target_indices] if target_indices else filt[:, :5]
+
+            fft_vals = np.abs(np.fft.rfft(roi_data, axis=0))
             freqs = np.fft.rfftfreq(len(filt), 1.0 / self.fs_eeg)
 
-            alpha = np.mean(fft_vals[(freqs >= 8) & (freqs <= 12), :]) if np.any((freqs >= 8) & (freqs <= 12)) else 0
-            beta = np.mean(fft_vals[(freqs >= 12) & (freqs <= 30), :]) if np.any((freqs >= 12) & (freqs <= 30)) else 0
-            delta = np.mean(fft_vals[(freqs >= 0.5) & (freqs <= 4), :]) if np.any((freqs >= 0.5) & (freqs <= 4)) else 0
+            # Apply 1/f spectral whitening (multiply magnitude by frequency to equalize power across bands)
+            whitened_fft = fft_vals * freqs[:, np.newaxis]
+
+            # Compute average whitened power per rhythm band
+            mask_alpha = (freqs >= 8.0) & (freqs <= 12.0)
+            mask_beta = (freqs >= 12.5) & (freqs <= 30.0)
+            mask_delta = (freqs >= 1.0) & (freqs <= 4.0)
+
+            alpha = np.mean(whitened_fft[mask_alpha, :]) if np.any(mask_alpha) else 0
+            beta = np.mean(whitened_fft[mask_beta, :]) if np.any(mask_beta) else 0
+            delta = np.mean(whitened_fft[mask_delta, :]) if np.any(mask_delta) else 0
 
             tot = alpha + beta + delta + 1e-6
             self.bar_alpha.setValue(int(min(100, (alpha / tot) * 100)))

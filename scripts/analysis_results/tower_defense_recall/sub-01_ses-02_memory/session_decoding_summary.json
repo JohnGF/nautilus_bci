@@ -1,0 +1,18 @@
+{
+    "dataset": "bids_tower_defense",
+    "subject": "01",
+    "session": "02",
+    "condition": "memory",
+    "task": "leftright",
+    "total_trials": 4,
+    "min_class_count": 1,
+    "cv_splits": 0,
+    "class_distribution": {
+        "FIRE": 1,
+        "WATER": 1,
+        "WIND": 1,
+        "ELECTRICITY": 1
+    },
+    "spatial_filter_applied": "robust_car",
+    "models_benchmark": {}
+}

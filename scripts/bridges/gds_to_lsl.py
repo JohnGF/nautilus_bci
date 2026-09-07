@@ -620,6 +620,9 @@ def main():
             nonlocal last_rail_warn
             global current_battery_level
             
+            if stop_event.is_set():
+                return False  # Stops the pygds GetData loop cleanly
+            
             # Extract battery level from data block column in real-time
             if battery_col >= 0 and data_block.shape[1] > battery_col:
                 current_battery_level = float(np.mean(data_block[:, battery_col]))
@@ -663,17 +666,17 @@ def main():
 
     finally:
         print(f"\n{Fore.YELLOW}[*] Releasing GDS connection and cleaning up...{Style.RESET_ALL}")
-        # Stop background thread
+        # Stop background threads and DAQ loop
         stop_event.set()
         try:
-            # Revert to standard electrode settings on close
-            device.InputSignal = pygds.GNAUTILUS_INPUT_SIGNAL_ELECTRODE
-            device.BatteryLevel = 0
-            device.SetConfiguration()
-            device.Close()
-            del device
-            print(f"{Fore.GREEN}[+] Disconnected successfully.{Style.RESET_ALL}")
-        except:
+            if 'device' in locals() and device is not None:
+                try:
+                    device.Close()
+                except Exception:
+                    pass
+                del device
+            print(f"{Fore.GREEN}[+] Disconnected cleanly from GDS.{Style.RESET_ALL}")
+        except Exception:
             pass
 
 if __name__ == '__main__':

@@ -31,8 +31,8 @@ start "Multimodal BCI Dashboard" %PYTHON_EXE% visualizers/multimodal_bci_dashboa
 timeout /t 2 /nobreak > nul
 
 :: 2. Launch the BCI experimental task selector in a separate background window
-echo [+] Launching GUI 2: BCI Task Selector App...
-start "BCI Task Selector" %PYTHON_EXE% tasks/task_launcher.py
+::echo [+] Launching GUI 2: BCI Task Selector App...
+::start "BCI Task Selector" %PYTHON_EXE% tasks/task_launcher.py
 
 :: Give task launcher a moment to initialize
 timeout /t 1 /nobreak > nul

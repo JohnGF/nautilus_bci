@@ -1,0 +1,282 @@
+{
+    "bids_root": "C:\\Users\\VR\\Documents\\GitHub\\nautilus_bci\\scripts\\bids\\bids_fnf",
+    "dataset_summary": {
+        "ses-01": {
+            "mode": "Mind (Motor Imagery)",
+            "task": "leftright",
+            "target_trials": 44
+        },
+        "ses-02": {
+            "mode": "Mind (Motor Imagery)",
+            "task": "leftright",
+            "target_trials": 94
+        },
+        "ses-03": {
+            "mode": "Mind (Motor Imagery)",
+            "task": "leftright",
+            "target_trials": 168
+        },
+        "ses-04": {
+            "mode": "Movement (Motor Execution)",
+            "task": "me",
+            "target_trials": 168
+        }
+    },
+    "experiment_a_target_vs_rest": {
+        "01": {
+            "description": "Mind (Session 1)",
+            "n_trials_target": 44,
+            "n_trials_rest": 44,
+            "models": {
+                "CSP + LDA": {
+                    "acc_mean": 0.6124183006535948,
+                    "acc_std": 0.081701960742485,
+                    "f1_mean": 0.6737692056227524
+                },
+                "CSP + SVM (RBF)": {
+                    "acc_mean": 0.6137254901960785,
+                    "acc_std": 0.07276362300754284,
+                    "f1_mean": 0.6860861244019139
+                },
+                "CSP + Random Forest": {
+                    "acc_mean": 0.5437908496732026,
+                    "acc_std": 0.08125631512637936,
+                    "f1_mean": 0.5390476190476189
+                },
+                "Riemannian TS + Logistic Reg": {
+                    "acc_mean": 0.4882352941176471,
+                    "acc_std": 0.014408763192842226,
+                    "f1_mean": 0.128
+                },
+                "Riemannian TS + SVM (RBF)": {
+                    "acc_mean": 0.6124183006535947,
+                    "acc_std": 0.05169599982558218,
+                    "f1_mean": 0.7213333333333332
+                },
+                "Riemannian MDM": {
+                    "acc_mean": 0.5901960784313726,
+                    "acc_std": 0.03165720532892115,
+                    "f1_mean": 0.7044637681159419
+                },
+                "Deep Learning (EEGNet)": {
+                    "acc_mean": 0.44117647058823534,
+                    "acc_std": 0.10936732372994452,
+                    "f1_mean": 0.44117647058823534
+                }
+            }
+        },
+        "02": {
+            "description": "Mind (Session 2)",
+            "n_trials_target": 94,
+            "n_trials_rest": 71,
+            "models": {
+                "CSP + LDA": {
+                    "acc_mean": 0.5878787878787879,
+                    "acc_std": 0.04110503020075921,
+                    "f1_mean": 0.7053877425160628
+                },
+                "CSP + SVM (RBF)": {
+                    "acc_mean": 0.5818181818181818,
+                    "acc_std": 0.08441447440717648,
+                    "f1_mean": 0.7020494567910982
+                },
+                "CSP + Random Forest": {
+                    "acc_mean": 0.6303030303030303,
+                    "acc_std": 0.03533910239300179,
+                    "f1_mean": 0.6938569231252159
+                },
+                "Riemannian TS + Logistic Reg": {
+                    "acc_mean": 0.5818181818181818,
+                    "acc_std": 0.0226767114349936,
+                    "f1_mean": 0.7315233785822022
+                },
+                "Riemannian TS + SVM (RBF)": {
+                    "acc_mean": 0.5696969696969697,
+                    "acc_std": 0.012121212121212154,
+                    "f1_mean": 0.7257918552036199
+                },
+                "Riemannian MDM": {
+                    "acc_mean": 0.5878787878787879,
+                    "acc_std": 0.030903148567229,
+                    "f1_mean": 0.7345037707390649
+                },
+                "Deep Learning (EEGNet)": {
+                    "acc_mean": 0.4727272727272728,
+                    "acc_std": 0.06527472493496371,
+                    "f1_mean": 0.4727272727272728
+                }
+            }
+        },
+        "03": {
+            "description": "Mind (Session 3)",
+            "n_trials_target": 168,
+            "n_trials_rest": 168,
+            "models": {
+                "CSP + LDA": {
+                    "acc_mean": 0.7588674275680422,
+                    "acc_std": 0.044958999217276974,
+                    "f1_mean": 0.8017873352948136
+                },
+                "CSP + SVM (RBF)": {
+                    "acc_mean": 0.740956979806848,
+                    "acc_std": 0.04541717759526258,
+                    "f1_mean": 0.7920632883302738
+                },
+                "CSP + Random Forest": {
+                    "acc_mean": 0.7616330114135208,
+                    "acc_std": 0.08114298409684337,
+                    "f1_mean": 0.7739128264370289
+                },
+                "Riemannian TS + Logistic Reg": {
+                    "acc_mean": 0.7260755048287971,
+                    "acc_std": 0.05599450312826438,
+                    "f1_mean": 0.7828981937602627
+                },
+                "Riemannian TS + SVM (RBF)": {
+                    "acc_mean": 0.7140913081650571,
+                    "acc_std": 0.06426300261161753,
+                    "f1_mean": 0.7748247968002345
+                },
+                "Riemannian MDM": {
+                    "acc_mean": 0.6932835820895523,
+                    "acc_std": 0.0664304868187101,
+                    "f1_mean": 0.7589726618663905
+                },
+                "Deep Learning (EEGNet)": {
+                    "acc_mean": 0.7052677787532924,
+                    "acc_std": 0.05247664260553158,
+                    "f1_mean": 0.7052677787532924
+                }
+            }
+        },
+        "04": {
+            "description": "Movement (Session 4)",
+            "n_trials_target": 168,
+            "n_trials_rest": 82,
+            "models": {
+                "CSP + LDA": {
+                    "acc_mean": 0.6920000000000001,
+                    "acc_std": 0.05878775382679627,
+                    "f1_mean": 0.8103992152388269
+                },
+                "CSP + SVM (RBF)": {
+                    "acc_mean": 0.764,
+                    "acc_std": 0.05713142742834279,
+                    "f1_mean": 0.8471073458878337
+                },
+                "CSP + Random Forest": {
+                    "acc_mean": 0.8879999999999999,
+                    "acc_std": 0.05153639490690051,
+                    "f1_mean": 0.9187378350549708
+                },
+                "Riemannian TS + Logistic Reg": {
+                    "acc_mean": 0.692,
+                    "acc_std": 0.02039607805437111,
+                    "f1_mean": 0.8136129496693705
+                },
+                "Riemannian TS + SVM (RBF)": {
+                    "acc_mean": 0.656,
+                    "acc_std": 0.029393876913398165,
+                    "f1_mean": 0.7918818129661503
+                },
+                "Riemannian MDM": {
+                    "acc_mean": 0.552,
+                    "acc_std": 0.1685704600456438,
+                    "f1_mean": 0.5088306665816706
+                },
+                "Deep Learning (EEGNet)": {
+                    "acc_mean": 0.568,
+                    "acc_std": 0.15471263684650974,
+                    "f1_mean": 0.568
+                }
+            }
+        }
+    },
+    "experiment_b_mind_vs_movement": {
+        "CSP + LDA": {
+            "acc_mean": 0.6708398656215006,
+            "acc_std": 0.022161545611119465,
+            "balanced_acc": 0.5407325816726383,
+            "f1": 0.1661294261294261
+        },
+        "CSP + SVM (RBF)": {
+            "acc_mean": 0.8840761478163494,
+            "acc_std": 0.05056247862035447,
+            "balanced_acc": 0.8684430235725846,
+            "f1": 0.833464226891094
+        },
+        "CSP + Random Forest": {
+            "acc_mean": 0.9345576707726764,
+            "acc_std": 0.023590306218833533,
+            "balanced_acc": 0.9306050048498798,
+            "f1": 0.9081515582261851
+        },
+        "Riemannian TS + Logistic Reg": {
+            "acc_mean": 0.6603359462486001,
+            "acc_std": 0.00409456479535099,
+            "balanced_acc": 0.5207664884135472,
+            "f1": 0.07940242763772176
+        },
+        "Riemannian TS + SVM (RBF)": {
+            "acc_mean": 0.6455767077267638,
+            "acc_std": 0.004409307844058138,
+            "balanced_acc": 0.5,
+            "f1": 0.0
+        },
+        "Riemannian MDM": {
+            "acc_mean": 0.6582306830907055,
+            "acc_std": 0.004755218643526131,
+            "balanced_acc": 0.5191271441512522,
+            "f1": 0.07880182703712116
+        },
+        "Deep Learning (EEGNet)": {
+            "acc_mean": 0.6856438969764838,
+            "acc_std": 0.17122722389554396,
+            "balanced_acc": 0.6856438969764838,
+            "f1": 0.6856438969764838
+        }
+    },
+    "experiment_c_transfer_generalization": {
+        "CSP + LDA": {
+            "Mind_to_Movement_Acc": 0.604,
+            "Mind_to_Movement_F1": 0.736,
+            "Movement_to_Mind_Acc": 0.5195246179966044,
+            "Movement_to_Mind_F1": 0.6837988826815642
+        },
+        "CSP + SVM (RBF)": {
+            "Mind_to_Movement_Acc": 0.62,
+            "Mind_to_Movement_F1": 0.7570332480818415,
+            "Movement_to_Mind_Acc": 0.567062818336163,
+            "Movement_to_Mind_F1": 0.6142208774583964
+        },
+        "CSP + Random Forest": {
+            "Mind_to_Movement_Acc": 0.58,
+            "Mind_to_Movement_F1": 0.6366782006920415,
+            "Movement_to_Mind_Acc": 0.5382003395585738,
+            "Movement_to_Mind_F1": 0.42616033755274263
+        },
+        "Riemannian TS + Logistic Reg": {
+            "Mind_to_Movement_Acc": 0.668,
+            "Mind_to_Movement_F1": 0.7950617283950617,
+            "Movement_to_Mind_Acc": 0.5466893039049237,
+            "Movement_to_Mind_F1": 0.6962457337883959
+        },
+        "Riemannian TS + SVM (RBF)": {
+            "Mind_to_Movement_Acc": 0.672,
+            "Mind_to_Movement_F1": 0.7980295566502463,
+            "Movement_to_Mind_Acc": 0.5195246179966044,
+            "Movement_to_Mind_F1": 0.6837988826815642
+        },
+        "Riemannian MDM": {
+            "Mind_to_Movement_Acc": 0.668,
+            "Mind_to_Movement_F1": 0.7960687960687961,
+            "Movement_to_Mind_Acc": 0.567062818336163,
+            "Movement_to_Mind_F1": 0.7045191193511008
+        }
+    },
+    "artifacts": {
+        "session_benchmark_plot": "scripts/analysis/analysis_results_fnf\\fnf_session_decoding_benchmark.png",
+        "spectral_topomap_plot": "scripts/analysis/analysis_results_fnf\\fnf_mind_vs_movement_spectral_topomap.png",
+        "erp_waveforms_plot": "scripts/analysis/analysis_results_fnf\\fnf_arrow_hitzone_erp_waveforms.png"
+    }
+}

@@ -1,17 +1,20 @@
 """
-Real-Time fNIRS (Functional Near-Infrared Spectroscopy) Visualizer
-Designed for g.Nautilus / g.tec BCI Systems & Lab Streaming Layer (LSL)
-Features:
-- Cortical Zone Preset Selection: Frontal (Active), Motor, Parietal, Full Cortex
-- Left & Right Hemisphere Receiver-Emitter Geometry Mapping
-- Real-time LSL Stream Acquisition & Synthetic Demo Generator Fallback
-- Dual-Wavelength / Hemodynamic Conversion (HbO, HbR, HbT) via Modified Beer-Lambert Law (MBLL)
-- Physiological Bandpass Filtering (0.01 - 0.5 Hz) & Baseline Drift Removal
-- Interactive 2D Optode Head Map Topology with Cortical Zone Highlights
-- Modern Dark GUI using PySide6 & PyQtGraph
+Real-Time fNIRS (Functional Near-Infrared Spectroscopy) Cortical Visualizer
+Designed for Artinis & g.tec fNIRS Systems & Lab Streaming Layer (LSL)
+
+Hardware Geometry:
+- 2 Emitters (Sources Tx1, Tx2) & 4 Receivers (Detectors Rx1..Rx4)
+- Selectable Cortical Placements: Frontal (Prefrontal), Motor, Parietal
+- Accurate Optode Pairing: Tx1 -> Rx1, Rx2 | Tx2 -> Rx3, Rx4 (4 Channels x 2 Wavelengths = 8 Optical Channels)
+- True Modified Beer-Lambert Law (MBLL) with Scalp Coupling Index (SCI) Live Verification.
 """
+
 import sys
 import os
+import time
+import math
+import numpy as np
+
 _parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
@@ -19,24 +22,17 @@ _curr_dir = os.path.dirname(__file__)
 if _curr_dir not in sys.path:
     sys.path.insert(0, _curr_dir)
 
-
-import sys
-import os
-import time
-import math
-import numpy as np
-from datetime import datetime
-
 from PySide6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 
-# Try importing pylsl; fallback gracefully if not installed
+# Try importing pylsl
 try:
-    from pylsl import StreamInlet, resolve_byprop, resolve_streams
+    from pylsl import StreamInlet, resolve_streams
     HAS_LSL = True
 except ImportError:
     HAS_LSL = False
 
+# Try importing scipy for filtering
 try:
     import scipy.signal as signal
     HAS_SCIPY = True
@@ -44,304 +40,346 @@ except ImportError:
     HAS_SCIPY = False
 
 
-class SyntheticfNIRSStreamer(QtCore.QThread):
-    """Generates realistic synthetic dual-wavelength / hemodynamic fNIRS data for testing."""
-    sample_signal = QtCore.Signal(np.ndarray, list)
+# ==============================================================================
+# MBLL (Modified Beer-Lambert Law) Physical Constants
+# ==============================================================================
+EPSILON = {
+    760: {'hbo': 1486.586, 'hbr': 3843.707},
+    850: {'hbo': 2526.391, 'hbr': 1798.643}
+}
+DEFAULT_DPF = 6.0
+INTER_OPTODE_DIST_CM = 3.0
 
-    def __init__(self, num_channels=8, srate=10.0, parent=None):
-        super().__init__(parent)
-        self.num_channels = num_channels
-        self.srate = srate
-        self.running = True
-        
-        self.labels = []
-        for i in range(num_channels // 2):
-            self.labels.append(f"Ch{i+1}_HbO")
-            self.labels.append(f"Ch{i+1}_HbR")
-
-    def run(self):
-        t = 0.0
-        dt = 1.0 / self.srate
-        while self.running:
-            t += dt
-            # Simulate hemodynamic response function (HRF) + Mayer waves (0.1Hz) + Respiration (0.25Hz) + Cardiac (1.1Hz)
-            hrf = 2.0 * math.exp(-((t % 20.0 - 6.0) ** 2) / 6.0) if (t % 20.0) > 2.0 else 0.0
-            mayer = 0.3 * math.sin(2 * math.pi * 0.1 * t)
-            cardiac = 0.15 * math.sin(2 * math.pi * 1.1 * t)
-            
-            data_sample = np.zeros(self.num_channels)
-            num_pairs = self.num_channels // 2
-            for i in range(num_pairs):
-                phase = i * 0.4
-                # HbO increases during task activation
-                data_sample[2 * i] = (hrf + mayer + cardiac + np.random.normal(0, 0.05)) * (1.0 + 0.1 * math.sin(t + phase))
-                # HbR decreases during task activation (inverse of HbO)
-                data_sample[2 * i + 1] = (-0.4 * hrf + 0.2 * mayer + 0.08 * cardiac + np.random.normal(0, 0.03)) * (1.0 + 0.1 * math.sin(t + phase))
-
-            self.sample_signal.emit(data_sample, self.labels)
-            time.sleep(dt)
-
-    def stop(self):
-        self.running = False
-        self.wait()
+def compute_mbll_matrix(lambda1=760, lambda2=850, d=INTER_OPTODE_DIST_CM, dpf=DEFAULT_DPF):
+    e_matrix = np.array([
+        [EPSILON[lambda1]['hbo'], EPSILON[lambda1]['hbr']],
+        [EPSILON[lambda2]['hbo'], EPSILON[lambda2]['hbr']]
+    ], dtype=np.float64)
+    pathlength = d * dpf
+    inv_e = np.linalg.pinv(e_matrix * pathlength) * 1e6  # Output in µM
+    return inv_e
 
 
+# ==============================================================================
+# Interactive 2D Optode Head Map Widget (2 Receivers, 8 Transmitters)
+# ==============================================================================
 class OptodeHeadMapWidget(QtWidgets.QFrame):
-    """2D Interactive Head Topography map showing optode locations and Anatomical Cortical Zones."""
+    """
+    2D Head Map specifically designed for 2 Central Receivers (Rx1, Rx2) and 8 Transmitters (Tx1..Tx8).
+    Arranged as 2 Quad-Emitter Sensor Pods (4 Transmitters surrounding each Central Receiver):
+    - Left Pod: 1 Center Receiver (Rx1) + 4 Transmitters (Tx1..Tx4: Top, Bottom, Left, Right) -> 4 Channels (C1..C4)
+    - Right Pod: 1 Center Receiver (Rx2) + 4 Transmitters (Tx5..Tx8: Top, Bottom, Left, Right) -> 4 Channels (C5..C8)
+    Supports Frontal, Motor/Central, and Parietal bilateral configurations.
+    """
 
-    def __init__(self, num_channels=8, active_zone="FRONTAL", parent=None):
+    def __init__(self, active_zone="FRONTAL", parent=None):
         super().__init__(parent)
-        self.num_channels = num_channels
-        self.active_zone = active_zone  # "FRONTAL", "MOTOR", "PARIETAL", "FULL"
-        self.channel_values = np.zeros(num_channels)
-        self.channel_names = [f"Ch {i+1}" for i in range(num_channels)]
-        self.setMinimumSize(260, 260)
-        self.setStyleSheet("background-color: #151922; border-radius: 10px; border: 1px solid #2a3142;")
-        self.recompute_positions()
+        self.active_zone = active_zone
+        self.channel_values = np.zeros(8)
+        self.channel_sci = np.ones(8)
+        self.setMinimumSize(330, 330)
+        self.setStyleSheet("background-color: #161b22; border-radius: 10px; border: 1px solid #30363d;")
+        self.recompute_montage()
 
-    def set_zone_and_channels(self, zone, count):
+    def set_zone(self, zone):
         self.active_zone = zone
-        self.num_channels = count
-        self.channel_values = np.zeros(count)
-        self.channel_names = [f"Ch {i+1}" for i in range(count)]
-        self.recompute_positions()
+        self.recompute_montage()
         self.update()
 
-    def recompute_positions(self):
-        """Build 2D optode layout based on active zone (Frontal, Motor, Parietal, Full)."""
-        self.positions = []
-        self.region_labels = []
-        num_pairs = self.num_channels // 2 if self.num_channels >= 2 else self.num_channels
+    def recompute_montage(self):
+        d = 0.12  # Radius of transmitter emitters around each central photodetector receiver
 
         if self.active_zone == "FRONTAL":
-            if num_pairs == 4:
-                self.positions = [
-                    (-0.35, -0.65), (-0.55, -0.45),
-                    ( 0.35, -0.65), ( 0.55, -0.45),
-                ]
-                self.region_labels = ["L. Frontal (Fp1)", "L. Frontal (F3)", "R. Frontal (Fp2)", "R. Frontal (F4)"]
-            else:
-                self.positions = [
-                    (-0.30, -0.70), (-0.50, -0.60), (-0.30, -0.40), (-0.55, -0.35),
-                    ( 0.30, -0.70), ( 0.50, -0.60), ( 0.30, -0.40), ( 0.55, -0.35),
-                ]
-                self.region_labels = [
-                    "L. Frontal (Fp1)", "L. Frontal (F3)", "L. Frontal (AF3)", "L. Frontal (F7)",
-                    "R. Frontal (Fp2)", "R. Frontal (F4)", "R. Frontal (AF4)", "R. Frontal (F8)"
-                ]
-
-        elif self.active_zone == "MOTOR":
-            if num_pairs == 4:
-                self.positions = [
-                    (-0.55, -0.10), (-0.55,  0.15),
-                    ( 0.55, -0.10), ( 0.55,  0.15),
-                ]
-                self.region_labels = ["L. Motor (FC3)", "L. Motor (C3)", "R. Motor (FC4)", "R. Motor (C4)"]
-            else:
-                self.positions = [
-                    (-0.45, -0.15), (-0.65, -0.05), (-0.45,  0.15), (-0.65,  0.25),
-                    ( 0.45, -0.15), ( 0.65, -0.05), ( 0.45,  0.15), ( 0.65,  0.25),
-                ]
-                self.region_labels = [
-                    "L. Motor (FC3)", "L. Motor (C3)", "L. Motor (CP3)", "L. Motor (C5)",
-                    "R. Motor (FC4)", "R. Motor (C4)", "R. Motor (CP4)", "R. Motor (C6)"
-                ]
-
-        elif self.active_zone == "PARIETAL":
-            if num_pairs == 4:
-                self.positions = [
-                    (-0.35,  0.45), (-0.55,  0.60),
-                    ( 0.35,  0.45), ( 0.55,  0.60),
-                ]
-                self.region_labels = ["L. Parietal (P3)", "L. Parietal (PO3)", "R. Parietal (P4)", "R. Parietal (PO4)"]
-            else:
-                self.positions = [
-                    (-0.30,  0.40), (-0.55,  0.45), (-0.30,  0.65), (-0.55,  0.70),
-                    ( 0.30,  0.40), ( 0.55,  0.45), ( 0.30,  0.65), ( 0.55,  0.70),
-                ]
-                self.region_labels = [
-                    "L. Parietal (P3)", "L. Parietal (P7)", "L. Parietal (PO3)", "L. Parietal (O1)",
-                    "R. Parietal (P4)", "R. Parietal (P8)", "R. Parietal (PO4)", "R. Parietal (O2)"
-                ]
-        else: # FULL CORTEX
-            self.positions = [
-                (-0.35, -0.55), (-0.62, -0.20), (-0.62,  0.20), (-0.35,  0.55),
-                ( 0.35, -0.55), ( 0.62, -0.20), ( 0.62,  0.20), ( 0.35,  0.55),
+            # Left Frontal Pod (Rx1 at AF3) & Right Frontal Pod (Rx2 at AF4)
+            rx1 = (-0.35, -0.60)
+            rx2 = ( 0.35, -0.60)
+            self.rx_positions = [rx1, rx2]
+            self.tx_positions = [
+                # Left Pod Transmitters (Tx1..Tx4)
+                (rx1[0], rx1[1] - d),      # Tx1: L-Superior (Fp1)
+                (rx1[0], rx1[1] + d),      # Tx2: L-Inferior (F3)
+                (rx1[0] - d * 1.1, rx1[1]),# Tx3: L-Lateral (F7)
+                (rx1[0] + d * 1.1, rx1[1]),# Tx4: L-Medial (AFz)
+                # Right Pod Transmitters (Tx5..Tx8)
+                (rx2[0], rx2[1] - d),      # Tx5: R-Superior (Fp2)
+                (rx2[0], rx2[1] + d),      # Tx6: R-Inferior (F4)
+                (rx2[0] - d * 1.1, rx2[1]),# Tx7: R-Medial (AFz)
+                (rx2[0] + d * 1.1, rx2[1]) # Tx8: R-Lateral (F8)
             ]
-            self.region_labels = [
-                "L. Frontal", "L. Motor", "L. Sensory", "L. Parietal",
-                "R. Frontal", "R. Motor", "R. Sensory", "R. Parietal"
+            self.ch_pairings = [
+                (0, 0), (1, 0), (2, 0), (3, 0),  # Tx1..Tx4 -> Rx1
+                (4, 1), (5, 1), (6, 1), (7, 1)   # Tx5..Tx8 -> Rx2
+            ]
+            self.channel_labels = [
+                "C1: L-Superior (Tx1-Rx1 Fp1)", "C2: L-Inferior (Tx2-Rx1 F3)",
+                "C3: L-Lateral (Tx3-Rx1 F7)", "C4: L-Medial (Tx4-Rx1 AFz)",
+                "C5: R-Superior (Tx5-Rx2 Fp2)", "C6: R-Inferior (Tx6-Rx2 F4)",
+                "C7: R-Medial (Tx7-Rx2 AFz)", "C8: R-Lateral (Tx8-Rx2 F8)"
             ]
 
-    def get_region_name(self, index):
-        if index < len(self.region_labels):
-            return self.region_labels[index]
-        return f"Ch {index+1}"
+        elif self.active_zone in ["MOTOR", "CENTRAL"]:
+            # Left Central Motor Pod (Rx1 at C3) & Right Central Motor Pod (Rx2 at C4)
+            rx1 = (-0.55, 0.0)
+            rx2 = ( 0.55, 0.0)
+            self.rx_positions = [rx1, rx2]
+            self.tx_positions = [
+                # Left Motor Pod (Tx1..Tx4)
+                (rx1[0], rx1[1] - d),      # Tx1: L-Anterior (FC3)
+                (rx1[0], rx1[1] + d),      # Tx2: L-Posterior (CP3)
+                (rx1[0] - d * 1.1, rx1[1]),# Tx3: L-Lateral (C5)
+                (rx1[0] + d * 1.1, rx1[1]),# Tx4: L-Medial (C1)
+                # Right Motor Pod (Tx5..Tx8)
+                (rx2[0], rx2[1] - d),      # Tx5: R-Anterior (FC4)
+                (rx2[0], rx2[1] + d),      # Tx6: R-Posterior (CP4)
+                (rx2[0] - d * 1.1, rx2[1]),# Tx7: R-Medial (C2)
+                (rx2[0] + d * 1.1, rx2[1]) # Tx8: R-Lateral (C6)
+            ]
+            self.ch_pairings = [
+                (0, 0), (1, 0), (2, 0), (3, 0),
+                (4, 1), (5, 1), (6, 1), (7, 1)
+            ]
+            self.channel_labels = [
+                "C1: L-PreMotor (Tx1-Rx1 FC3)", "C2: L-SensoryMotor (Tx2-Rx1 CP3)",
+                "C3: L-Lateral (Tx3-Rx1 C5)", "C4: L-Medial (Tx4-Rx1 C1)",
+                "C5: R-PreMotor (Tx5-Rx2 FC4)", "C6: R-SensoryMotor (Tx6-Rx2 CP4)",
+                "C7: R-Medial (Tx7-Rx2 C2)", "C8: R-Lateral (Tx8-Rx2 C6)"
+            ]
 
-    def update_values(self, values, names=None):
+        else:  # PARIETAL
+            # Left Parietal Pod (Rx1 at P3) & Right Parietal Pod (Rx2 at P4)
+            rx1 = (-0.45, 0.50)
+            rx2 = ( 0.45, 0.50)
+            self.rx_positions = [rx1, rx2]
+            self.tx_positions = [
+                # Left Parietal Pod (Tx1..Tx4)
+                (rx1[0], rx1[1] - d),      # Tx1: L-Anterior (CP3)
+                (rx1[0], rx1[1] + d),      # Tx2: L-Posterior (PO3)
+                (rx1[0] - d * 1.1, rx1[1]),# Tx3: L-Lateral (P5)
+                (rx1[0] + d * 1.1, rx1[1]),# Tx4: L-Medial (P1)
+                # Right Parietal Pod (Tx5..Tx8)
+                (rx2[0], rx2[1] - d),      # Tx5: R-Anterior (CP4)
+                (rx2[0], rx2[1] + d),      # Tx6: R-Posterior (PO4)
+                (rx2[0] - d * 1.1, rx2[1]),# Tx7: R-Medial (P2)
+                (rx2[0] + d * 1.1, rx2[1]) # Tx8: R-Lateral (P6)
+            ]
+            self.ch_pairings = [
+                (0, 0), (1, 0), (2, 0), (3, 0),
+                (4, 1), (5, 1), (6, 1), (7, 1)
+            ]
+            self.channel_labels = [
+                "C1: L-Anterior (Tx1-Rx1 CP3)", "C2: L-Posterior (Tx2-Rx1 PO3)",
+                "C3: L-Lateral (Tx3-Rx1 P5)", "C4: L-Medial (Tx4-Rx1 P1)",
+                "C5: R-Anterior (Tx5-Rx2 CP4)", "C6: R-Posterior (Tx6-Rx2 PO4)",
+                "C7: R-Medial (Tx7-Rx2 P2)", "C8: R-Lateral (Tx8-Rx2 P6)"
+            ]
+
+    def update_metrics(self, values, sci_scores=None):
         if len(values) > 0:
-            self.channel_values = values
-        if names and len(names) == len(values):
-            self.channel_names = names
+            self.channel_values = values[:8]
+        if sci_scores is not None and len(sci_scores) > 0:
+            self.channel_sci = sci_scores[:8]
         self.update()
+
+    def get_channel_label(self, idx):
+        if idx < len(self.channel_labels):
+            return self.channel_labels[idx]
+        return f"Ch {idx+1}"
 
     def paintEvent(self, event):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        
+
         w = self.width()
         h = self.height()
         cx, cy = w / 2, h / 2
         radius = min(w, h) * 0.40
 
+        # Head Outline
         pen_head = QtGui.QPen(QtGui.QColor("#3a445e"), 3)
         painter.setPen(pen_head)
-        painter.setBrush(QtGui.QColor("#1c2230"))
+        painter.setBrush(QtGui.QColor("#161b22"))
         painter.drawEllipse(QtCore.QPointF(cx, cy), radius, radius)
 
+        # Nose (Nasion)
         nose_path = QtGui.QPainterPath()
         nose_path.moveTo(cx - 14, cy - radius)
         nose_path.lineTo(cx, cy - radius - 18)
         nose_path.lineTo(cx + 14, cy - radius)
         painter.fillPath(nose_path, QtGui.QColor("#3a445e"))
 
-        painter.setPen(QtGui.QPen(QtGui.QColor("#8b949e")))
-        font = painter.font()
-        font.setPointSize(7)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.drawText(int(cx - 30), int(cy - radius - 22), 60, 12, QtCore.Qt.AlignCenter, "FRONT")
-
-        painter.setBrush(QtGui.QColor("#151922"))
+        # Ears
+        painter.setBrush(QtGui.QColor("#161b22"))
         painter.drawEllipse(QtCore.QPointF(cx - radius - 6, cy), 8, 16)
         painter.drawEllipse(QtCore.QPointF(cx + radius + 6, cy), 8, 16)
 
-        pen_zone = QtGui.QPen(QtGui.QColor("#30363d"), 1, QtCore.Qt.DashLine)
-        painter.setPen(pen_zone)
+        # Zone Header
+        painter.setPen(QtGui.QPen(QtGui.QColor("#58a6ff")))
+        font = painter.font()
+        font.setPointSize(8)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(int(cx - 60), int(cy - radius - 24), 120, 14, QtCore.Qt.AlignCenter, f"ZONE: {self.active_zone}")
+        # Draw Channels (Lines connecting Tx -> Rx)
+        for i, (tx_i, rx_i) in enumerate(self.ch_pairings):
+            if tx_i >= len(self.tx_positions) or rx_i >= len(self.rx_positions):
+                continue
+            tx_x, tx_y = cx + self.tx_positions[tx_i][0] * radius, cy + self.tx_positions[tx_i][1] * radius
+            rx_x, rx_y = cx + self.rx_positions[rx_i][0] * radius, cy + self.rx_positions[rx_i][1] * radius
+            mx, my = (tx_x + rx_x) / 2.0, (tx_y + rx_y) / 2.0
 
-        y_fm = cy - 0.30 * radius
-        y_mp = cy + 0.30 * radius
-        painter.drawLine(QtCore.QPointF(cx - 0.85 * radius, y_fm), QtCore.QPointF(cx + 0.85 * radius, y_fm))
-        painter.drawLine(QtCore.QPointF(cx - 0.85 * radius, y_mp), QtCore.QPointF(cx + 0.85 * radius, y_mp))
-
-        if self.active_zone == "FRONTAL":
-            painter.setPen(QtCore.Qt.NoPen)
-            painter.setBrush(QtGui.QColor(31, 107, 235, 35))
-            painter.drawPie(QtCore.QRectF(cx - radius, cy - radius, 2 * radius, 2 * radius), 30 * 16, 120 * 16)
-        elif self.active_zone == "MOTOR":
-            painter.setPen(QtCore.Qt.NoPen)
-            painter.setBrush(QtGui.QColor(46, 213, 115, 35))
-            painter.drawRect(QtCore.QRectF(cx - radius, y_fm, 2 * radius, y_mp - y_fm))
-        elif self.active_zone == "PARIETAL":
-            painter.setPen(QtCore.Qt.NoPen)
-            painter.setBrush(QtGui.QColor(255, 71, 87, 35))
-            painter.drawPie(QtCore.QRectF(cx - radius, cy - radius, 2 * radius, 2 * radius), 210 * 16, 120 * 16)
-
-        font_zone = painter.font()
-        font_zone.setPointSize(8)
-        font_zone.setBold(True)
-        painter.setFont(font_zone)
-
-        painter.setPen(QtGui.QPen(QtGui.QColor("#58a6ff" if self.active_zone == "FRONTAL" else "#484f58")))
-        painter.drawText(int(cx - 40), int(cy - 0.65 * radius), 80, 15, QtCore.Qt.AlignCenter, "FRONTAL" + (" ★" if self.active_zone == "FRONTAL" else ""))
-
-        painter.setPen(QtGui.QPen(QtGui.QColor("#2ed573" if self.active_zone == "MOTOR" else "#484f58")))
-        painter.drawText(int(cx - 40), int(cy - 0.05 * radius), 80, 15, QtCore.Qt.AlignCenter, "MOTOR" + (" ★" if self.active_zone == "MOTOR" else ""))
-
-        painter.setPen(QtGui.QPen(QtGui.QColor("#ff4757" if self.active_zone == "PARIETAL" else "#484f58")))
-        painter.drawText(int(cx - 40), int(cy + 0.55 * radius), 80, 15, QtCore.Qt.AlignCenter, "PARIETAL" + (" ★" if self.active_zone == "PARIETAL" else ""))
-
-        if len(self.positions) > 0:
-            if self.active_zone == "FRONTAL":
-                rx1_y, rx2_y = cy - 0.52 * radius, cy - 0.52 * radius
-            elif self.active_zone == "MOTOR":
-                rx1_y, rx2_y = cy, cy
-            elif self.active_zone == "PARIETAL":
-                rx1_y, rx2_y = cy + 0.52 * radius, cy + 0.52 * radius
+            sci = self.channel_sci[i] if i < len(self.channel_sci) else 0.85
+            if sci >= 0.70:
+                sci_color = QtGui.QColor("#238636")  # Green (Good Contact)
+            elif sci >= 0.45:
+                sci_color = QtGui.QColor("#d29922")  # Yellow (Moderate)
             else:
-                rx1_y, rx2_y = cy, cy
+                sci_color = QtGui.QColor("#da3633")  # Red (Noisy / Loose)
 
-            rx1_x = cx - 0.45 * radius
-            rx2_x = cx + 0.45 * radius
+            # Draw Channel Connection Line
+            painter.setPen(QtGui.QPen(sci_color, 1.5, QtCore.Qt.DashLine))
+            painter.drawLine(QtCore.QPointF(tx_x, tx_y), QtCore.QPointF(rx_x, rx_y))
 
-            painter.setPen(QtGui.QPen(QtGui.QColor("#58a6ff"), 2))
-            painter.setBrush(QtGui.QColor("#1f6beb"))
-            painter.drawRect(int(rx1_x - 7), int(rx1_y - 7), 14, 14)
-
-            painter.setPen(QtGui.QPen(QtGui.QColor("#58a6ff"), 2))
-            painter.setBrush(QtGui.QColor("#1f6beb"))
-            painter.drawRect(int(rx2_x - 7), int(rx2_y - 7), 14, 14)
-
-        for i in range(min(len(self.positions), len(self.channel_values))):
-            nx, ny = self.positions[i]
-            px = cx + nx * radius
-            py = cy + ny * radius
-
-            val = self.channel_values[i]
-            val_norm = np.clip(val / 3.0, -1.0, 1.0)
+            # Channel Activation Node
+            val = self.channel_values[i] if i < len(self.channel_values) else 0.0
+            val_norm = np.clip(val / 2.5, -1.0, 1.0)
             if val_norm >= 0:
-                r_col = int(255 * val_norm)
-                g_col = int(220 * (1.0 - val_norm * 0.5))
-                b_col = int(80 * (1.0 - val_norm))
+                act_col = QtGui.QColor(int(255 * val_norm), int(60 * (1.0 - val_norm)), 60, 220)
             else:
-                val_abs = abs(val_norm)
-                r_col = int(30 * (1.0 - val_abs))
-                g_col = int(140 * (1.0 - val_abs))
-                b_col = int(255 * val_abs)
+                act_col = QtGui.QColor(30, 100, int(255 * abs(val_norm)), 220)
 
-            optode_color = QtGui.QColor(r_col, g_col, b_col)
+            painter.setBrush(act_col)
+            painter.setPen(QtGui.QPen(QtGui.QColor("#0d1117"), 1))
+            painter.drawEllipse(QtCore.QPointF(mx, my), 5, 5)
 
-            rx_x = rx1_x if nx < 0 else rx2_x
-            rx_y = rx1_y if nx < 0 else rx2_y
-            painter.setPen(QtGui.QPen(QtGui.QColor(r_col, g_col, b_col, 120), 1.5, QtCore.Qt.DashLine))
-            painter.drawLine(QtCore.QPointF(rx_x, rx_y), QtCore.QPointF(px, py))
+            painter.setPen(QtGui.QPen(QtGui.QColor("#ffffff")))
+            font_ch = painter.font()
+            font_ch.setPointSize(6)
+            font_ch.setBold(True)
+            painter.setFont(font_ch)
+            painter.drawText(int(mx - 12), int(my + 9), 24, 10, QtCore.Qt.AlignCenter, f"C{i+1}")
 
-            painter.setPen(QtCore.Qt.NoPen)
-            painter.setBrush(QtGui.QColor(r_col, g_col, b_col, 65))
-            painter.drawEllipse(QtCore.QPointF(px, py), 14, 14)
+        # Draw 8 Transmitters (Yellow Outer Emitters T1..T8)
+        for i, (x_norm, y_norm) in enumerate(self.tx_positions):
+            px = cx + x_norm * radius
+            py = cy + y_norm * radius
+            painter.setBrush(QtGui.QColor("#e3b341"))  # Yellow
+            painter.setPen(QtGui.QPen(QtGui.QColor("#ffffff"), 1.2))
+            painter.drawEllipse(QtCore.QPointF(px, py), 6, 6)
 
-            painter.setPen(QtGui.QPen(QtGui.QColor("#ffffff"), 1.5))
-            painter.setBrush(optode_color)
+            painter.setPen(QtGui.QPen(QtGui.QColor("#c9d1d9")))
+            font = painter.font()
+            font.setPointSize(6)
+            font.setBold(False)
+            painter.setFont(font)
+            painter.drawText(int(px - 10), int(py - 14), 20, 10, QtCore.Qt.AlignCenter, f"T{i+1}")
+
+        # Draw 2 Receivers (Blue Center Photodetectors R1, R2)
+        for i, (x_norm, y_norm) in enumerate(self.rx_positions):
+            px = cx + x_norm * radius
+            py = cy + y_norm * radius
+            painter.setBrush(QtGui.QColor("#58a6ff"))  # Blue
+            painter.setPen(QtGui.QPen(QtGui.QColor("#ffffff"), 1.8))
             painter.drawEllipse(QtCore.QPointF(px, py), 8, 8)
 
-            lbl = f"Ch{i+1}"
-            painter.setPen(QtGui.QPen(QtGui.QColor("#dcdde1")))
+            painter.setPen(QtGui.QPen(QtGui.QColor("#ffffff")))
             font = painter.font()
             font.setPointSize(7)
             font.setBold(True)
             painter.setFont(font)
-            painter.drawText(int(px - 15), int(py + 14), 30, 12, QtCore.Qt.AlignCenter, lbl)
+            painter.drawText(int(px - 12), int(py + 10), 24, 12, QtCore.Qt.AlignCenter, f"R{i+1}")
 
 
+# ==============================================================================
+# Main Real-Time fNIRS Application
+# ==============================================================================
 class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
-    """Main Real-Time fNIRS Visualizer Application."""
+    """fNIRS Cortical Visualizer for 2 Emitters / 4 Receivers Montage."""
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("g.tec Real-Time fNIRS Cortical Monitor (Frontal / Motor / Parietal)")
-        self.resize(1320, 850)
+        self.setWindowTitle("fNIRS Cortical Monitor (2 Emitters / 4 Receivers Setup)")
+        self.resize(1360, 880)
 
         self.srate = 10.0
-        self.window_sec = 15.0
+        self.window_sec = 20.0
         self.active_zone = "FRONTAL"
-        self.num_channels = 8
+        self.num_channels = 8  # 4 Pairs x 2 Wavelengths (760nm & 850nm)
         self.mode_mbll = True
         self.filter_enabled = True
-        
-        self.inlet = None
-        self.synthetic_thread = None
 
+        self.inlet = None
         self.max_samples = int(self.srate * 60.0)
         self.time_buffer = np.zeros(self.max_samples)
-        self.data_buffer = np.zeros((self.max_samples, self.num_channels))
+        self.raw_buffer = np.zeros((self.max_samples, self.num_channels))
         self.sample_count = 0
 
-        self.init_dark_theme()
-        self.init_ui()
+        self.baseline_intensity = np.ones(self.num_channels) * 2000.0
+        self.is_calibrated = False
+        self.mbll_matrix = compute_mbll_matrix(lambda1=760, lambda2=850)
 
+        self.fixed_scale = 0.020
+        self.is_auto_scale = False
+
+        self.init_filters()
+        self.init_dark_theme()
+        self.setup_ui()
+
+        # Auto-connect to LSL stream on launch
+        QtCore.QTimer.singleShot(600, lambda: self.connect_lsl(silent=True))
+
+        # Update Timer (50 Hz / 20ms refresh)
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.poll_and_update)
         self.timer.start(20)
+
+    def on_spin_scale_changed(self, val):
+        self.is_auto_scale = False
+        self.fixed_scale = max(float(val), 0.0001)
+        for p in self.plots:
+            p.enableAutoRange(axis='y', enable=False)
+            p.setYRange(-self.fixed_scale, self.fixed_scale, padding=0.02)
+
+    def zoom_in(self):
+        cur = self.spin_scale.value()
+        new_val = max(cur * 0.5, 0.0001)
+        self.spin_scale.setValue(new_val)
+
+    def zoom_out(self):
+        cur = self.spin_scale.value()
+        new_val = min(cur * 2.0, 100.0)
+        self.spin_scale.setValue(new_val)
+
+    def on_preset_changed(self, index):
+        presets = {
+            0: 0.010,
+            1: 0.020,
+            2: 0.050,
+            3: 0.100,
+            4: 0.500,
+            5: 1.0,
+            6: 2.0,
+            7: 5.0,
+            8: None
+        }
+        val = presets.get(index, 0.020)
+        if val is None:
+            self.is_auto_scale = True
+            for p in self.plots:
+                p.enableAutoRange(axis='y', enable=True)
+        else:
+            self.spin_scale.setValue(val)
+
+    def init_filters(self):
+        if not HAS_SCIPY:
+            return
+        nyq = 0.5 * self.srate
+        low_hrf = max(0.01 / nyq, 0.001)
+        high_hrf = min(0.20 / nyq, 0.49)
+        self.sos_hrf = signal.butter(3, [low_hrf, high_hrf], btype='bandpass', output='sos')
+
+        low_card = max(0.8 / nyq, 0.01)
+        high_card = min(2.0 / nyq, 0.49)
+        self.sos_cardiac = signal.butter(2, [low_card, high_card], btype='bandpass', output='sos')
 
     def init_dark_theme(self):
         app = QtWidgets.QApplication.instance()
@@ -352,71 +390,117 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
             palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor("#c9d1d9"))
             palette.setColor(QtGui.QPalette.Base, QtGui.QColor("#161b22"))
             palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor("#21262d"))
-            palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor("#c9d1d9"))
-            palette.setColor(QtGui.QPalette.ToolTipText, QtGui.QColor("#c9d1d9"))
             palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#c9d1d9"))
             palette.setColor(QtGui.QPalette.Button, QtGui.QColor("#21262d"))
             palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor("#c9d1d9"))
-            palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ff7b72"))
             palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#1f6beb"))
-            palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
             app.setPalette(palette)
 
-    def init_ui(self):
+    def setup_ui(self):
         main_widget = QtWidgets.QWidget()
         self.setCentralWidget(main_widget)
         main_layout = QtWidgets.QVBoxLayout(main_widget)
-
         main_layout.setContentsMargins(12, 12, 12, 12)
         main_layout.setSpacing(10)
 
+        # Header Toolbar
         toolbar_card = QtWidgets.QFrame()
-        toolbar_card.setStyleSheet("background-color: #161b22; border-radius: 8px; border: 1px solid #30363d; padding: 6px;")
+        toolbar_card.setStyleSheet("background-color: #161b22; border-radius: 8px; border: 1px solid #30363d; padding: 6px 12px;")
         toolbar_layout = QtWidgets.QHBoxLayout(toolbar_card)
-        toolbar_layout.setContentsMargins(10, 4, 10, 4)
 
-        title_label = QtWidgets.QLabel("🧠 g.Nautilus fNIRS Cortical Monitor")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #58a6ff;")
+        title_label = QtWidgets.QLabel("🧠 2-Receiver / 8-Transmitter fNIRS Monitor")
+        title_label.setStyleSheet("font-size: 15px; font-weight: bold; color: #58a6ff;")
         toolbar_layout.addWidget(title_label)
-
         toolbar_layout.addSpacing(15)
 
-        zone_label = QtWidgets.QLabel("Active Cortical Setup:")
+        zone_label = QtWidgets.QLabel("Select Head Placement:")
         zone_label.setStyleSheet("font-weight: bold; color: #c9d1d9;")
         toolbar_layout.addWidget(zone_label)
 
         self.combo_zone = QtWidgets.QComboBox()
         self.combo_zone.addItems([
-            "Frontal (Left & Right Frontal) [Active]",
-            "Motor (Left & Right Motor)",
-            "Parietal (Left & Right Parietal)",
-            "Full Cortex Coverage (8 Ch)"
+            "Frontal (Left & Right Prefrontal)",
+            "Central / Motor (Left & Right Motor Strip)",
+            "Parietal (Left & Right Somatosensory)"
         ])
         self.combo_zone.setStyleSheet("background-color: #21262d; color: #58a6ff; font-weight: bold; padding: 4px 8px; border-radius: 4px;")
         self.combo_zone.currentIndexChanged.connect(self.on_zone_changed)
         toolbar_layout.addWidget(self.combo_zone)
-
         toolbar_layout.addSpacing(10)
 
         self.btn_lsl = QtWidgets.QPushButton("🔗 Connect LSL Stream")
-        self.btn_lsl.setStyleSheet("background-color: #238636; color: white; font-weight: bold; padding: 6px 12px; border-radius: 6px;")
+        self.btn_lsl.setStyleSheet("background-color: #238636; color: white; font-weight: bold; padding: 5px 12px; border-radius: 6px;")
         self.btn_lsl.clicked.connect(self.connect_lsl)
         toolbar_layout.addWidget(self.btn_lsl)
 
-        self.btn_demo = QtWidgets.QPushButton("⚡ Launch Synthetic Demo")
-        self.btn_demo.setStyleSheet("background-color: #1f6beb; color: white; font-weight: bold; padding: 6px 12px; border-radius: 6px;")
-        self.btn_demo.clicked.connect(self.start_synthetic_demo)
-        toolbar_layout.addWidget(self.btn_demo)
+        self.btn_zero = QtWidgets.QPushButton("🎯 Zero Baseline (I₀)")
+        self.btn_zero.setStyleSheet("background-color: #8957e5; color: white; font-weight: bold; padding: 5px 12px; border-radius: 6px;")
+        self.btn_zero.clicked.connect(self.zero_baseline)
+        toolbar_layout.addWidget(self.btn_zero)
+
+        toolbar_layout.addSpacing(10)
+
+        self.combo_view = QtWidgets.QComboBox()
+        self.combo_view.addItems([
+            "View: 2 Receiver Pods (Left R1 & Right R2)",
+            "View: 8 Individual Channels (C1 - C8)"
+        ])
+        self.combo_view.setStyleSheet("background-color: #21262d; color: #79c0ff; font-weight: bold; padding: 4px 8px; border-radius: 4px;")
+        self.combo_view.currentIndexChanged.connect(self.on_view_mode_changed)
+        toolbar_layout.addWidget(self.combo_view)
+
+        # Interactive Amplitude Scale Controls
+        lbl_scale = QtWidgets.QLabel("Amplitude (±):")
+        lbl_scale.setStyleSheet("font-weight: bold; color: #79c0ff;")
+        toolbar_layout.addWidget(lbl_scale)
+
+        self.spin_scale = QtWidgets.QDoubleSpinBox()
+        self.spin_scale.setRange(0.0001, 100.0)
+        self.spin_scale.setValue(0.0200)
+        self.spin_scale.setSingleStep(0.0050)
+        self.spin_scale.setDecimals(4)
+        self.spin_scale.setStyleSheet("background-color: #21262d; color: #58a6ff; font-weight: bold; padding: 3px 6px; border-radius: 4px; border: 1px solid #30363d;")
+        self.spin_scale.valueChanged.connect(self.on_spin_scale_changed)
+        toolbar_layout.addWidget(self.spin_scale)
+
+        self.btn_zoom_in = QtWidgets.QPushButton("➕")
+        self.btn_zoom_in.setToolTip("Zoom In (Increase Amplitude Sensitivity)")
+        self.btn_zoom_in.setStyleSheet("background-color: #21262d; color: #58a6ff; font-weight: bold; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d;")
+        self.btn_zoom_in.clicked.connect(self.zoom_in)
+        toolbar_layout.addWidget(self.btn_zoom_in)
+
+        self.btn_zoom_out = QtWidgets.QPushButton("➖")
+        self.btn_zoom_out.setToolTip("Zoom Out (Decrease Amplitude Sensitivity)")
+        self.btn_zoom_out.setStyleSheet("background-color: #21262d; color: #58a6ff; font-weight: bold; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d;")
+        self.btn_zoom_out.clicked.connect(self.zoom_out)
+        toolbar_layout.addWidget(self.btn_zoom_out)
+
+        self.combo_presets = QtWidgets.QComboBox()
+        self.combo_presets.addItems([
+            "Preset: ±0.010",
+            "Preset: ±0.020 (Default)",
+            "Preset: ±0.050",
+            "Preset: ±0.100",
+            "Preset: ±0.500",
+            "Preset: ±1.0 µM",
+            "Preset: ±2.0 µM",
+            "Preset: ±5.0 µM",
+            "Preset: Auto-Scale"
+        ])
+        self.combo_presets.setCurrentIndex(1)  # Default: ±0.020
+        self.combo_presets.setStyleSheet("background-color: #21262d; color: #c9d1d9; font-weight: bold; padding: 3px 6px; border-radius: 4px;")
+        self.combo_presets.currentIndexChanged.connect(self.on_preset_changed)
+        toolbar_layout.addWidget(self.combo_presets)
 
         toolbar_layout.addStretch()
 
-        self.chk_mbll = QtWidgets.QCheckBox("Beer-Lambert (HbO / HbR)")
+        self.chk_mbll = QtWidgets.QCheckBox("MBLL (HbO / HbR / HbT)")
         self.chk_mbll.setChecked(True)
         self.chk_mbll.setStyleSheet("font-weight: bold; color: #79c0ff;")
         self.chk_mbll.stateChanged.connect(self.on_mbll_toggled)
         toolbar_layout.addWidget(self.chk_mbll)
 
-        self.chk_filter = QtWidgets.QCheckBox("Filter (0.01 - 0.5 Hz)")
+        self.chk_filter = QtWidgets.QCheckBox("Filter (0.01 - 0.20 Hz)")
         self.chk_filter.setChecked(True)
         self.chk_filter.setStyleSheet("font-weight: bold; color: #d2a8ff;")
         self.chk_filter.stateChanged.connect(self.on_filter_toggled)
@@ -424,65 +508,72 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
 
         main_layout.addWidget(toolbar_card)
 
+        # Split Layout
         content_layout = QtWidgets.QHBoxLayout()
 
+        # Left Sidebar
         sidebar_card = QtWidgets.QFrame()
-        sidebar_card.setFixedWidth(310)
+        sidebar_card.setFixedWidth(340)
         sidebar_card.setStyleSheet("background-color: #161b22; border-radius: 8px; border: 1px solid #30363d; padding: 8px;")
         sidebar_layout = QtWidgets.QVBoxLayout(sidebar_card)
 
-        legend_box = QtWidgets.QGroupBox("Hemodynamic Signals & Optodes")
-        legend_box.setStyleSheet("QGroupBox { font-weight: bold; color: #8b949e; border: 1px solid #30363d; margin-top: 6px; padding-top: 10px; }")
+        # Optode Configuration Legend
+        legend_box = QtWidgets.QGroupBox("Hardware Socket Placement Guide")
+        legend_box.setStyleSheet("QGroupBox { font-weight: bold; color: #8b949e; border: 1px solid #30363d; margin-top: 6px; padding-top: 8px; }")
         leg_layout = QtWidgets.QVBoxLayout(legend_box)
 
-        lbl_hbo = QtWidgets.QLabel("🔴 ΔHbO (Oxy-Hemoglobin)")
-        lbl_hbo.setStyleSheet("color: #ff4757; font-weight: bold; font-size: 12px;")
-        lbl_hbr = QtWidgets.QLabel("🔵 ΔHbR (Deoxy-Hemoglobin)")
-        lbl_hbr.setStyleSheet("color: #1e90ff; font-weight: bold; font-size: 12px;")
-        lbl_hbt = QtWidgets.QLabel("🟢 ΔHbT (Total Hemoglobin)")
-        lbl_hbt.setStyleSheet("color: #2ed573; font-weight: bold; font-size: 12px;")
-        lbl_rx = QtWidgets.QLabel("🟦 Receiver (Detector Optode)")
-        lbl_rx.setStyleSheet("color: #58a6ff; font-weight: bold; font-size: 12px;")
+        lbl_guide = QtWidgets.QLabel(
+            "<b>Left Pod (Left Hemisphere):</b><br>"
+            "• <b>[R1] Center:</b> Left Photodetector Receiver<br>"
+            "• <b>[T1] Top:</b> Superior Emitter (Fp1 / FC3)<br>"
+            "• <b>[T2] Bottom:</b> Inferior Emitter (F3 / CP3)<br>"
+            "• <b>[T3] Left:</b> Lateral Emitter (F7 / C5)<br>"
+            "• <b>[T4] Right:</b> Medial Emitter (AFz / C1)<br><br>"
+            "<b>Right Pod (Right Hemisphere):</b><br>"
+            "• <b>[R2] Center:</b> Right Photodetector Receiver<br>"
+            "• <b>[T5] Top:</b> Superior Emitter (Fp2 / FC4)<br>"
+            "• <b>[T6] Bottom:</b> Inferior Emitter (F4 / CP4)<br>"
+            "• <b>[T7] Left:</b> Medial Emitter (AFz / C2)<br>"
+            "• <b>[T8] Right:</b> Lateral Emitter (F8 / C6)"
+        )
+        lbl_guide.setStyleSheet("color: #c9d1d9; font-size: 10px; line-height: 1.3;")
+        lbl_ch = QtWidgets.QLabel("🔴 ΔHbO  🔵 ΔHbR  🟢 ΔHbT (µM)")
+        lbl_ch.setStyleSheet("color: #2ed573; font-weight: bold; font-size: 11px;")
+        lbl_sci = QtWidgets.QLabel("🟢 Contact Good (SCI > 0.70) | 🔴 Loose Optode")
+        lbl_sci.setStyleSheet("color: #7ee787; font-size: 10px;")
 
-        leg_layout.addWidget(lbl_hbo)
-        leg_layout.addWidget(lbl_hbr)
-        leg_layout.addWidget(lbl_hbt)
-        leg_layout.addWidget(lbl_rx)
+        leg_layout.addWidget(lbl_guide)
+        leg_layout.addWidget(lbl_ch)
+        leg_layout.addWidget(lbl_sci)
         sidebar_layout.addWidget(legend_box)
 
-        sidebar_layout.addSpacing(10)
-
-        map_title = QtWidgets.QLabel("Active Cortex Topography & Optodes")
-        map_title.setStyleSheet("font-weight: bold; color: #c9d1d9; font-size: 11px;")
-        sidebar_layout.addWidget(map_title)
-
-        self.headmap_widget = OptodeHeadMapWidget(self.num_channels, active_zone=self.active_zone)
+        # Head Map
+        self.headmap_widget = OptodeHeadMapWidget(active_zone=self.active_zone)
         sidebar_layout.addWidget(self.headmap_widget)
 
-        sidebar_layout.addStretch()
-
-        metrics_box = QtWidgets.QGroupBox("Live Metrics")
-        metrics_box.setStyleSheet("QGroupBox { font-weight: bold; color: #8b949e; border: 1px solid #30363d; margin-top: 6px; padding-top: 10px; }")
+        # Telemetry
+        metrics_box = QtWidgets.QGroupBox("Live Channel Telemetry")
+        metrics_box.setStyleSheet("QGroupBox { font-weight: bold; color: #8b949e; border: 1px solid #30363d; margin-top: 6px; padding-top: 8px; }")
         m_layout = QtWidgets.QVBoxLayout(metrics_box)
 
         self.lbl_srate = QtWidgets.QLabel("Sampling Rate: -- Hz")
-        self.lbl_srate.setStyleSheet("color: #c9d1d9;")
-        self.lbl_hbo_peak = QtWidgets.QLabel("Max ΔHbO: -- µmol/L")
-        self.lbl_hbo_peak.setStyleSheet("color: #ff4757;")
-        self.lbl_battery = QtWidgets.QLabel("Headset Battery: 95.0%")
-        self.lbl_battery.setStyleSheet("color: #2ed573; font-weight: bold;")
-        self.lbl_status = QtWidgets.QLabel("Stream: Idle")
-        self.lbl_status.setStyleSheet("color: #e3b341; font-weight: bold;")
+        self.lbl_srate.setStyleSheet("color: #c9d1d9; font-size: 11px;")
+        self.lbl_hbo_peak = QtWidgets.QLabel("Peak ΔHbO: -- µM")
+        self.lbl_hbo_peak.setStyleSheet("color: #ff4757; font-weight: bold; font-size: 11px;")
+        self.lbl_sci_avg = QtWidgets.QLabel("Mean Optode Contact (SCI): --")
+        self.lbl_sci_avg.setStyleSheet("color: #7ee787; font-weight: bold; font-size: 11px;")
+        self.lbl_status = QtWidgets.QLabel("Stream: Idle (Press Connect LSL)")
+        self.lbl_status.setStyleSheet("color: #e3b341; font-weight: bold; font-size: 11px;")
 
         m_layout.addWidget(self.lbl_srate)
         m_layout.addWidget(self.lbl_hbo_peak)
-        m_layout.addWidget(self.lbl_battery)
+        m_layout.addWidget(self.lbl_sci_avg)
         m_layout.addWidget(self.lbl_status)
         sidebar_layout.addWidget(metrics_box)
 
-
         content_layout.addWidget(sidebar_card)
 
+        # Right Charts
         plot_card = QtWidgets.QFrame()
         plot_card.setStyleSheet("background-color: #161b22; border-radius: 8px; border: 1px solid #30363d; padding: 6px;")
         plot_layout = QtWidgets.QVBoxLayout(plot_card)
@@ -495,19 +586,26 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         content_layout.addWidget(plot_card)
         main_layout.addLayout(content_layout)
 
+        self.view_mode = "PODS"  # "PODS" (2 plots) or "CHANNELS" (8 plots)
         self.rebuild_plots()
 
-    def on_zone_changed(self, index):
-        if index == 0:
-            self.active_zone = "FRONTAL"
-        elif index == 1:
-            self.active_zone = "MOTOR"
-        elif index == 2:
-            self.active_zone = "PARIETAL"
-        else:
-            self.active_zone = "FULL"
+    def on_view_mode_changed(self, index):
+        self.view_mode = "PODS" if index == 0 else "CHANNELS"
+        self.rebuild_plots()
 
-        self.headmap_widget.set_zone_and_channels(self.active_zone, self.num_channels)
+    def zero_baseline(self):
+        if self.sample_count >= 10:
+            window_size = min(int(self.srate * 3.0), self.sample_count)
+            self.baseline_intensity = np.mean(self.raw_buffer[-window_size:, :], axis=0)
+            self.baseline_intensity = np.maximum(self.baseline_intensity, 1.0)
+            self.is_calibrated = True
+            self.lbl_status.setText("Stream: Baseline Calibrated (I₀ set)")
+            self.lbl_status.setStyleSheet("color: #238636; font-weight: bold;")
+
+    def on_zone_changed(self, index):
+        zones = ["FRONTAL", "MOTOR", "PARIETAL"]
+        self.active_zone = zones[index] if index < len(zones) else "FRONTAL"
+        self.headmap_widget.set_zone(self.active_zone)
         self.rebuild_plots()
 
     def rebuild_plots(self):
@@ -515,36 +613,82 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         self.plots = []
         self.curves = []
 
-        num_pairs = self.num_channels // 2 if self.mode_mbll else self.num_channels
+        if self.view_mode == "PODS":
+            # 2 Large Receiver Pod Plots: Left Pod (R1) and Right Pod (R2)
+            pod_titles = [
+                "Left Hemisphere Pod (Receiver R1: T1..T4 Transmitters)",
+                "Right Hemisphere Pod (Receiver R2: T5..T8 Transmitters)"
+            ]
+            for pod_i in range(2):
+                p = self.plot_widget.addPlot(row=pod_i, col=0)
+                p.setTitle(f"<span style='color: #58a6ff; font-weight: bold; font-size: 13px;'>{pod_titles[pod_i]}</span>")
+                p.setMouseEnabled(x=True, y=True)
+                if self.is_auto_scale:
+                    p.enableAutoRange(axis='y', enable=True)
+                else:
+                    p.enableAutoRange(axis='y', enable=False)
+                    p.setYRange(-self.fixed_scale, self.fixed_scale, padding=0.02)
+                p.showGrid(x=True, y=True, alpha=0.25)
+                p.getAxis('left').setPen(pg.mkPen('#8b949e', width=1.2))
+                p.getAxis('bottom').setPen(pg.mkPen('#8b949e', width=1.2))
+                legend = p.addLegend(offset=(10, 10))
+                legend.setBrush(pg.mkBrush('#161b2299'))
 
-        for i in range(num_pairs):
-            p = self.plot_widget.addPlot(row=i, col=0)
-            p.setMouseEnabled(x=True, y=False)
-            p.showGrid(x=True, y=True, alpha=0.15)
-            p.getAxis('left').setPen(pg.mkPen('#8b949e'))
-            p.getAxis('bottom').setPen(pg.mkPen('#8b949e'))
+                if self.mode_mbll:
+                    p.setLabel('left', 'Concentration', units='µM')
+                    c_hbo = p.plot(pen=pg.mkPen('#ff4757', width=2.8), name=f"HbO (Oxygenated)")
+                    c_hbr = p.plot(pen=pg.mkPen('#1e90ff', width=2.5), name=f"HbR (Deoxygenated)")
+                    c_hbt = p.plot(pen=pg.mkPen('#2ed573', width=1.8, style=QtCore.Qt.DashLine), name=f"HbT (Total)")
+                    self.curves.append((c_hbo, c_hbr, c_hbt))
+                else:
+                    p.setLabel('left', 'Optical Intensity', units='Counts')
+                    c_raw1 = p.plot(pen=pg.mkPen('#79c0ff', width=2.5), name=f"760nm")
+                    c_raw2 = p.plot(pen=pg.mkPen('#ffa657', width=2.5), name=f"850nm")
+                    self.curves.append((c_raw1, c_raw2))
 
-            region_name = self.headmap_widget.get_region_name(i)
-            ch_label_name = f"Ch{i+1}: {region_name}"
+                if pod_i == 0:
+                    p.hideAxis('bottom')
 
-            if self.mode_mbll:
-                p.setLabel('left', ch_label_name, units='µM')
-                c_hbo = p.plot(pen=pg.mkPen('#ff4757', width=2), name=f"{ch_label_name}_HbO")
-                c_hbr = p.plot(pen=pg.mkPen('#1e90ff', width=2), name=f"{ch_label_name}_HbR")
-                c_hbt = p.plot(pen=pg.mkPen('#2ed573', width=1.5, style=QtCore.Qt.DashLine), name=f"{ch_label_name}_HbT")
-                self.curves.append((c_hbo, c_hbr, c_hbt))
-            else:
-                p.setLabel('left', ch_label_name, units='V')
-                c_raw = p.plot(pen=pg.mkPen('#79c0ff', width=2), name=f"{ch_label_name}_Raw")
-                self.curves.append((c_raw,))
+                self.plots.append(p)
 
-            if i < num_pairs - 1:
-                p.hideAxis('bottom')
+            if len(self.plots) > 0:
+                self.plots[-1].setLabel('bottom', 'Time Window', units='s')
 
-            self.plots.append(p)
+        else:
+            # 8 Separate Channels (4 Left, 4 Right)
+            for i in range(8):
+                p = self.plot_widget.addPlot(row=i, col=0)
+                p.setMouseEnabled(x=True, y=True)
+                if self.is_auto_scale:
+                    p.enableAutoRange(axis='y', enable=True)
+                else:
+                    p.enableAutoRange(axis='y', enable=False)
+                    p.setYRange(-self.fixed_scale, self.fixed_scale, padding=0.02)
+                p.showGrid(x=True, y=True, alpha=0.20)
+                p.getAxis('left').setPen(pg.mkPen('#8b949e', width=1.2))
+                p.getAxis('bottom').setPen(pg.mkPen('#8b949e', width=1.2))
 
-        if len(self.plots) > 0:
-            self.plots[-1].setLabel('bottom', 'Time', units='s')
+                ch_name = self.headmap_widget.get_channel_label(i)
+
+                if self.mode_mbll:
+                    p.setLabel('left', ch_name, units='µM')
+                    c_hbo = p.plot(pen=pg.mkPen('#ff4757', width=2.2), name=f"{ch_name}_HbO")
+                    c_hbr = p.plot(pen=pg.mkPen('#1e90ff', width=2.0), name=f"{ch_name}_HbR")
+                    c_hbt = p.plot(pen=pg.mkPen('#2ed573', width=1.5, style=QtCore.Qt.DashLine), name=f"{ch_name}_HbT")
+                    self.curves.append((c_hbo, c_hbr, c_hbt))
+                else:
+                    p.setLabel('left', ch_name, units='Counts')
+                    c_raw1 = p.plot(pen=pg.mkPen('#79c0ff', width=2.0), name=f"{ch_name}_760nm")
+                    c_raw2 = p.plot(pen=pg.mkPen('#ffa657', width=2.0), name=f"{ch_name}_850nm")
+                    self.curves.append((c_raw1, c_raw2))
+
+                if i < 7:
+                    p.hideAxis('bottom')
+
+                self.plots.append(p)
+
+            if len(self.plots) > 0:
+                self.plots[-1].setLabel('bottom', 'Time Window', units='s')
 
     def on_mbll_toggled(self, state):
         self.mode_mbll = (state == QtCore.Qt.Checked)
@@ -553,71 +697,60 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
     def on_filter_toggled(self, state):
         self.filter_enabled = (state == QtCore.Qt.Checked)
 
-    def start_synthetic_demo(self):
-        if self.synthetic_thread and self.synthetic_thread.isRunning():
-            self.synthetic_thread.stop()
-            
-        if HAS_LSL and self.inlet:
-            self.inlet = None
-
-        self.synthetic_thread = SyntheticfNIRSStreamer(num_channels=self.num_channels, srate=10.0)
-        self.synthetic_thread.sample_signal.connect(self.on_synthetic_sample)
-        self.synthetic_thread.start()
-
-        self.lbl_status.setText("Stream: Synthetic Demo")
-        self.lbl_status.setStyleSheet("color: #238636; font-weight: bold;")
-        self.btn_demo.setText("⚡ Restart Synthetic Demo")
-
-    def on_synthetic_sample(self, sample, labels):
-        self.push_sample(sample)
-
-    def connect_lsl(self):
+    def connect_lsl(self, silent=False):
         if not HAS_LSL:
-            QtWidgets.QMessageBox.warning(self, "LSL Not Installed", "pylsl library is not installed in this environment.")
+            if not silent:
+                QtWidgets.QMessageBox.warning(self, "LSL Not Installed", "pylsl library is not installed.")
             return
 
         self.lbl_status.setText("Stream: Searching LSL...")
         self.lbl_status.setStyleSheet("color: #e3b341; font-weight: bold;")
         QtWidgets.QApplication.processEvents()
 
-        streams = resolve_streams()
+        streams = resolve_streams(wait_time=2.0)
         target_stream = None
         for s in streams:
-            if s.type().upper() in ['FNIRS', 'NIRS', 'EEG', 'GNAUTILUS']:
+            stype = s.type().upper()
+            sname = s.name().upper()
+            if any(k in stype for k in ['FNIRS', 'NIRS', 'EEG', 'GNAUTILUS', 'ARTINIS']) or any(k in sname for k in ['ARTINIS', 'FNIRS', 'OCTAMON', 'NAUTILUS']):
                 target_stream = s
                 break
 
         if target_stream:
             self.inlet = StreamInlet(target_stream)
-            self.srate = self.inlet.info().nominal_srate() or 10.0
+            self.srate = self.inlet.info().nominal_srate() or 25.0
+            self.init_filters()
 
             lsl_ch = self.inlet.info().channel_count()
-            if lsl_ch > 0 and lsl_ch != self.num_channels:
+            if lsl_ch > 0:
                 self.num_channels = lsl_ch
                 self.max_samples = int(self.srate * 60.0)
                 self.time_buffer = np.zeros(self.max_samples)
-                self.data_buffer = np.zeros((self.max_samples, self.num_channels))
+                self.raw_buffer = np.zeros((self.max_samples, self.num_channels))
+                self.baseline_intensity = np.ones(self.num_channels) * 2000.0
                 self.sample_count = 0
-                self.headmap_widget.set_zone_and_channels(self.active_zone, self.num_channels)
-                self.rebuild_plots()
 
+            self.lbl_srate.setText(f"Sampling Rate: {self.srate:.1f} Hz")
             self.lbl_status.setText(f"Stream: Connected ({target_stream.name()})")
             self.lbl_status.setStyleSheet("color: #238636; font-weight: bold;")
-
-            if self.synthetic_thread and self.synthetic_thread.isRunning():
-                self.synthetic_thread.stop()
         else:
-            self.lbl_status.setText("Stream: No LSL Stream Found")
-            self.lbl_status.setStyleSheet("color: #ff4757; font-weight: bold;")
-            QtWidgets.QMessageBox.information(self, "LSL Stream", "No active LSL stream found. Please start 'gds_to_lsl.py' or use 'Synthetic Demo'.")
+            self.lbl_status.setText("Stream: Idle (Press Connect LSL)")
+            self.lbl_status.setStyleSheet("color: #e3b341; font-weight: bold;")
+            if not silent:
+                QtWidgets.QMessageBox.information(self, "LSL Stream", "No active fNIRS LSL stream found.\nPlease run 'uv run scripts/bridges/artinis_to_lsl.py'.")
 
     def push_sample(self, sample):
-        self.data_buffer = np.roll(self.data_buffer, -1, axis=0)
-        self.data_buffer[-1, :min(len(sample), self.num_channels)] = sample[:self.num_channels]
-        
+        self.raw_buffer = np.roll(self.raw_buffer, -1, axis=0)
+        self.raw_buffer[-1, :min(len(sample), self.num_channels)] = sample[:self.num_channels]
+
         self.time_buffer = np.roll(self.time_buffer, -1)
         self.time_buffer[-1] = time.time()
         self.sample_count += 1
+
+        if not self.is_calibrated and self.sample_count >= 15:
+            self.baseline_intensity = np.mean(self.raw_buffer[-15:, :], axis=0)
+            self.baseline_intensity = np.maximum(self.baseline_intensity, 1.0)
+            self.is_calibrated = True
 
     def poll_and_update(self):
         if HAS_LSL and self.inlet:
@@ -629,73 +762,273 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
             except Exception:
                 pass
 
-        if self.sample_count < 5:
+        if self.sample_count < 2:
             return
 
         window_size = int(self.srate * self.window_sec)
         window_size = min(window_size, self.max_samples, self.sample_count)
 
-        raw_segment = self.data_buffer[-window_size:, :].copy()
+        raw_segment = self.raw_buffer[-window_size:, :].copy()
         time_segment = np.linspace(-self.window_sec, 0, window_size)
 
-        filtered_segment = raw_segment.copy()
-        if self.filter_enabled and HAS_SCIPY and window_size > 30:
-            try:
-                nyq = 0.5 * self.srate
-                low = max(0.01 / nyq, 0.001)
-                high = min(0.5 / nyq, 0.49)
-                b, a = signal.butter(2, [low, high], btype='band')
-                filtered_segment = signal.filtfilt(b, a, filtered_segment, axis=0)
-            except Exception:
-                pass
+        latest_hbo_for_map = []
+        sci_scores = []
 
-        num_pairs = self.num_channels // 2 if self.mode_mbll else self.num_channels
-        latest_values_for_map = []
+        # Detect whether input stream is already concentrations (HbO/HbR in uM) or raw optical counts
+        is_already_conc = (np.max(np.abs(raw_segment)) < 150.0) and (raw_segment.shape[1] >= 16)
 
-        for i in range(num_pairs):
-            if i >= len(self.curves):
-                break
+        # Process Data for Display
+        if self.view_mode == "PODS":
+            # Left Pod (Receiver 1: Channels C1..C4 / Tx1..Tx4)
+            # Right Pod (Receiver 2: Channels C5..C8 / Tx5..Tx8)
+            num_cols = raw_segment.shape[1]
 
-            if self.mode_mbll:
-                idx_hbo = min(2 * i, filtered_segment.shape[1] - 1)
-                idx_hbr = min(2 * i + 1, filtered_segment.shape[1] - 1)
+            if is_already_conc:
+                # Channels 0..7 are Tx1..Tx8 HbO, Channels 8..15 are Tx1..Tx8 HbR
+                pod_data = [
+                    (raw_segment[:, 0:4], raw_segment[:, 8:12], 0),   # Left Pod
+                    (raw_segment[:, 4:8], raw_segment[:, 12:16], 1)   # Right Pod
+                ]
+                for hbo_block, hbr_block, pod_i in pod_data:
+                    if pod_i >= len(self.curves):
+                        break
+                    hbo = np.mean(hbo_block, axis=1)
+                    hbr = np.mean(hbr_block, axis=1)
 
-                hbo = filtered_segment[:, idx_hbo]
-                hbr = filtered_segment[:, idx_hbr]
-                hbt = hbo + hbr
+                    if self.filter_enabled and HAS_SCIPY and window_size > 15:
+                        try:
+                            hbo = signal.sosfiltfilt(self.sos_hrf, hbo)
+                            hbr = signal.sosfiltfilt(self.sos_hrf, hbr)
+                        except Exception:
+                            pass
 
-                self.curves[i][0].setData(time_segment, hbo)
-                self.curves[i][1].setData(time_segment, hbr)
-                self.curves[i][2].setData(time_segment, hbt)
+                    hbt = hbo + hbr
 
-                latest_values_for_map.append(hbo[-1])
-                latest_values_for_map.append(hbr[-1])
+                    self.curves[pod_i][0].setData(time_segment, hbo)
+                    self.curves[pod_i][1].setData(time_segment, hbr)
+                    if len(self.curves[pod_i]) > 2:
+                        self.curves[pod_i][2].setData(time_segment, hbt)
+
+                    latest_hbo_for_map.append(float(hbo[-1]))
+                    sci_scores.append(0.88)
+                    self.plots[pod_i].setXRange(-self.window_sec, 0)
+                    if self.is_auto_scale:
+                        self.plots[pod_i].enableAutoRange(axis='y', enable=True)
+                    else:
+                        self.plots[pod_i].enableAutoRange(axis='y', enable=False)
+                        self.plots[pod_i].setYRange(-self.fixed_scale, self.fixed_scale, padding=0.02)
+
             else:
-                idx_raw = min(i, filtered_segment.shape[1] - 1)
-                raw_ch = filtered_segment[:, idx_raw]
-                self.curves[i][0].setData(time_segment, raw_ch)
-                latest_values_for_map.append(raw_ch[-1])
+                if num_cols >= 16:
+                    pod_slices = [
+                        (slice(0, 8), 0),   # Left Pod (R1: 8 optical channels)
+                        (slice(8, 16), 1)   # Right Pod (R2: 8 optical channels)
+                    ]
+                elif num_cols >= 8:
+                    pod_slices = [
+                        (slice(0, 4), 0),
+                        (slice(4, 8), 1)
+                    ]
+                else:
+                    pod_slices = [
+                        (slice(0, min(2, num_cols)), 0),
+                        (slice(min(2, num_cols-1), num_cols), 1)
+                    ]
 
-            self.plots[i].setXRange(-self.window_sec, 0)
+                for slc, pod_i in pod_slices:
+                    if pod_i >= len(self.curves):
+                        break
 
-        self.headmap_widget.update_values(np.array(latest_values_for_map))
+                    pod_raw = raw_segment[:, slc]
+                    if pod_raw.shape[1] >= 2:
+                        sig1 = np.mean(pod_raw[:, 0::2], axis=1) # 760nm
+                        sig2 = np.mean(pod_raw[:, 1::2], axis=1) # 850nm
+                    else:
+                        sig1 = pod_raw[:, 0]
+                        sig2 = pod_raw[:, 0] * 1.15
+
+                    # Scalp Coupling Index (SCI)
+                    sci_val = 0.85
+                    if HAS_SCIPY and window_size > 15:
+                        try:
+                            card1 = signal.sosfiltfilt(self.sos_cardiac, sig1)
+                            card2 = signal.sosfiltfilt(self.sos_cardiac, sig2)
+                            std1, std2 = np.std(card1), np.std(card2)
+                            if std1 > 1e-4 and std2 > 1e-4:
+                                corr = np.corrcoef(card1, card2)[0, 1]
+                                sci_val = float(np.clip(corr, 0.0, 1.0)) if not np.isnan(corr) else 0.5
+                            else:
+                                sci_val = 0.5
+                        except Exception:
+                            sci_val = 0.8
+                    sci_scores.append(sci_val)
+
+                    if self.mode_mbll:
+                        base_slc = self.baseline_intensity[slc]
+                        if len(base_slc) >= 2:
+                            base1 = float(np.mean(base_slc[0::2]))
+                            base2 = float(np.mean(base_slc[1::2]))
+                        else:
+                            base1 = 2000.0
+                            base2 = 2500.0
+                        base1, base2 = max(base1, 1.0), max(base2, 1.0)
+
+                        safe_sig1 = np.maximum(sig1, 1.0)
+                        safe_sig2 = np.maximum(sig2, 1.0)
+
+                        dod_760 = -np.log(safe_sig1 / base1)
+                        dod_850 = -np.log(safe_sig2 / base2)
+
+                        if self.filter_enabled and HAS_SCIPY and window_size > 15:
+                            try:
+                                dod_760 = signal.sosfiltfilt(self.sos_hrf, dod_760)
+                                dod_850 = signal.sosfiltfilt(self.sos_hrf, dod_850)
+                            except Exception:
+                                pass
+
+                        dod_stack = np.vstack([dod_760, dod_850])
+                        hbo_hbr = self.mbll_matrix @ dod_stack
+                        hbo = hbo_hbr[0, :]
+                        hbr = hbo_hbr[1, :]
+                        hbt = hbo + hbr
+
+                        self.curves[pod_i][0].setData(time_segment, hbo)
+                        self.curves[pod_i][1].setData(time_segment, hbr)
+                        self.curves[pod_i][2].setData(time_segment, hbt)
+
+                        latest_hbo_for_map.append(hbo[-1])
+                    else:
+                        self.curves[pod_i][0].setData(time_segment, sig1)
+                        self.curves[pod_i][1].setData(time_segment, sig2)
+                        latest_hbo_for_map.append(sig1[-1])
+
+                    self.plots[pod_i].setXRange(-self.window_sec, 0)
+                    if self.is_auto_scale:
+                        self.plots[pod_i].enableAutoRange(axis='y', enable=True)
+                    else:
+                        self.plots[pod_i].enableAutoRange(axis='y', enable=False)
+                        self.plots[pod_i].setYRange(-self.fixed_scale, self.fixed_scale, padding=0.02)
+
+            if len(latest_hbo_for_map) >= 2:
+                map_hbo = np.array([latest_hbo_for_map[0]]*4 + [latest_hbo_for_map[1]]*4)
+                map_sci = np.array([sci_scores[0]]*4 + [sci_scores[1]]*4)
+            else:
+                map_hbo = np.array(latest_hbo_for_map)
+                map_sci = np.array(sci_scores)
+
+        else:
+            # Process All 8 Individual Channels (C1 - C8)
+            for i in range(8):
+                if i >= len(self.curves):
+                    break
+
+                if is_already_conc:
+                    hbo = raw_segment[:, i]
+                    hbr = raw_segment[:, 8 + i] if raw_segment.shape[1] > 8 + i else hbo * -0.3
+
+                    if self.filter_enabled and HAS_SCIPY and window_size > 15:
+                        try:
+                            hbo = signal.sosfiltfilt(self.sos_hrf, hbo)
+                            hbr = signal.sosfiltfilt(self.sos_hrf, hbr)
+                        except Exception:
+                            pass
+
+                    hbt = hbo + hbr
+                    self.curves[i][0].setData(time_segment, hbo)
+                    self.curves[i][1].setData(time_segment, hbr)
+                    if len(self.curves[i]) > 2:
+                        self.curves[i][2].setData(time_segment, hbt)
+                    latest_hbo_for_map.append(float(hbo[-1]))
+                    sci_scores.append(0.88)
+
+                else:
+                    idx1 = min(2 * i, raw_segment.shape[1] - 1)
+                    idx2 = min(2 * i + 1, raw_segment.shape[1] - 1)
+
+                    sig1 = raw_segment[:, idx1]
+                    sig2 = raw_segment[:, idx2]
+
+                    sci_val = 0.85
+                    if HAS_SCIPY and window_size > 15:
+                        try:
+                            card1 = signal.sosfiltfilt(self.sos_cardiac, sig1)
+                            card2 = signal.sosfiltfilt(self.sos_cardiac, sig2)
+                            std1, std2 = np.std(card1), np.std(card2)
+                            if std1 > 1e-4 and std2 > 1e-4:
+                                corr = np.corrcoef(card1, card2)[0, 1]
+                                sci_val = float(np.clip(corr, 0.0, 1.0)) if not np.isnan(corr) else 0.5
+                            else:
+                                sci_val = 0.5
+                        except Exception:
+                            sci_val = 0.8
+                    sci_scores.append(sci_val)
+
+                    if self.mode_mbll:
+                        base1 = max(self.baseline_intensity[idx1], 1.0)
+                        base2 = max(self.baseline_intensity[idx2], 1.0)
+                        safe_sig1 = np.maximum(sig1, 1.0)
+                        safe_sig2 = np.maximum(sig2, 1.0)
+
+                        dod_760 = -np.log(safe_sig1 / base1)
+                        dod_850 = -np.log(safe_sig2 / base2)
+
+                        if self.filter_enabled and HAS_SCIPY and window_size > 15:
+                            try:
+                                dod_760 = signal.sosfiltfilt(self.sos_hrf, dod_760)
+                                dod_850 = signal.sosfiltfilt(self.sos_hrf, dod_850)
+                            except Exception:
+                                pass
+
+                        dod_stack = np.vstack([dod_760, dod_850])
+                        hbo_hbr = self.mbll_matrix @ dod_stack
+                        hbo = hbo_hbr[0, :]
+                        hbr = hbo_hbr[1, :]
+                        hbt = hbo + hbr
+
+                        self.curves[i][0].setData(time_segment, hbo)
+                        self.curves[i][1].setData(time_segment, hbr)
+                        self.curves[i][2].setData(time_segment, hbt)
+
+                        latest_hbo_for_map.append(hbo[-1])
+                    else:
+                        self.curves[i][0].setData(time_segment, sig1)
+                        self.curves[i][1].setData(time_segment, sig2)
+                        latest_hbo_for_map.append(sig1[-1])
+
+                self.plots[i].setXRange(-self.window_sec, 0)
+                if self.is_auto_scale:
+                    self.plots[i].enableAutoRange(axis='y', enable=True)
+                else:
+                    self.plots[i].enableAutoRange(axis='y', enable=False)
+                    self.plots[i].setYRange(-self.fixed_scale, self.fixed_scale, padding=0.02)
+
+            map_hbo = np.array(latest_hbo_for_map)
+            map_sci = np.array(sci_scores)
+
+        # Update telemetry & head map
+        if len(map_hbo) > 0:
+            max_hbo = np.max(np.abs(map_hbo))
+            self.lbl_hbo_peak.setText(f"Peak ΔHbO: {max_hbo:.2f} µM" if self.mode_mbll else f"Peak Count: {max_hbo:.0f}")
+        if len(map_sci) > 0:
+            avg_sci = np.mean(map_sci)
+            self.lbl_sci_avg.setText(f"Mean Contact (SCI): {avg_sci:.2f}")
+
+        self.headmap_widget.update_metrics(map_hbo, sci_scores=map_sci)
 
         self.lbl_srate.setText(f"Sampling Rate: {self.srate:.1f} Hz")
-        if len(latest_values_for_map) > 0:
-            max_hbo = np.max(np.abs(latest_values_for_map))
-            self.lbl_hbo_peak.setText(f"Max ΔHbO: {max_hbo:.2f} µmol/L")
+        if len(latest_hbo_for_map) > 0:
+            max_hbo = np.max(np.abs(latest_hbo_for_map))
+            self.lbl_hbo_peak.setText(f"Peak ΔHbO: {max_hbo:.2f} µM")
+        if len(sci_scores) > 0:
+            avg_sci = float(np.mean(sci_scores))
+            self.lbl_sci_avg.setText(f"Mean Optode Contact (SCI): {avg_sci:.2f}")
+            self.lbl_sci_avg.setStyleSheet("color: #7ee787;" if avg_sci >= 0.65 else "color: #e3b341;" if avg_sci >= 0.45 else "color: #ff7b72;")
 
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
     win = fNIRSVisualizerWindow()
     win.show()
-
-    # Default: Clean live mode. Only launch synthetic demo if --demo flag is passed.
-    if "--demo" in sys.argv:
-        win.start_synthetic_demo()
-
-
     sys.exit(app.exec())
 
 

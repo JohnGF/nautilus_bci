@@ -1,9 +1,9 @@
 [submodule "galaxy_watch_lsl"]
     path = galaxy_watch_lsl
     url = https://github.com/JohnGF/galaxy_watch_lsl
-[submodule "tower_defense"]
-    path = tower_defense
-    url = https://github.com/Guilherme-Coto/tower-defense-bci
 [submodule "fnf_prot"]
-    path = fnf_prot
-    url = https://github.com/gabrielbrilha/fnf_prot
+	path = fnf_prot
+	url = https://github.com/gabrielbrilha/fnf_prot
+[submodule "tower-defense-bci"]
+	path = tower-defense-bci
+	url = https://github.com/Guilherme-Coto/tower-defense-bci

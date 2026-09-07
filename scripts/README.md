@@ -55,6 +55,13 @@ From the control panel interface:
   - Track 6: Pyotr Ilyich Tchaikovsky - Waltz of the Flowers (Full Symphony Master, 10.33 MB)
 - **Structure**: 3.0s Auditory Cue Sample -> 5.0s Mental Music Imagery & Memory Recall (Silent EEG epoch) -> 2.5s Rest.
 
+### 3. Full-Length Continuous Music Listening Paradigm (`music_full_track_task.py`)
+- **Start-to-Finish Playback**: Plays complete un-cut compositions (e.g. 2 to 7+ minutes per track) for continuous long-stream brainwave and neural entrainment recording.
+- **Dynamic Track Discovery**: Select individual tracks or all tracks across `real`, `classical`, `jazz_ragtime`, and `synthetic_beats`.
+- **EEG-Optimized Presentation**: Minimalist Fixation Cross (`+`), Rhythmic Pulsing Visualizer, or Modern Timecode mode to minimize ocular and saccade artifacts.
+- **LSL Markers**: Synchronizes session start, baseline rest, track start with exact duration, 30s progress checkpoints, track end, and inter-track rest periods.
+- **Quick Launch**: Run `scripts/start_music_listening_task.bat` or launch from the Task Selector (`start_task_selector.bat`).
+
 ---
 
 ## Machine Learning and Analysis

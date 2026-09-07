@@ -1,0 +1,49 @@
+{
+    "dataset": "bids_tower_defense",
+    "subject": "01",
+    "session": "02",
+    "condition": "recall",
+    "task": "leftright",
+    "total_trials": 8,
+    "min_class_count": 2,
+    "cv_splits": 2,
+    "class_distribution": {
+        "FIRE": 2,
+        "WATER": 2,
+        "WIND": 2,
+        "ELECTRICITY": 2
+    },
+    "spatial_filter_applied": "robust_car",
+    "models_benchmark": {
+        "Riemannian TS + LogReg": {
+            "accuracy_mean": 0.125,
+            "accuracy_std": 0.125,
+            "balanced_acc": 0.125,
+            "f1_macro": 0.08333333333333333
+        },
+        "Riemannian TS + SVM (RBF)": {
+            "accuracy_mean": 0.125,
+            "accuracy_std": 0.125,
+            "balanced_acc": 0.125,
+            "f1_macro": 0.08333333333333333
+        },
+        "Riemannian MDM": {
+            "accuracy_mean": 0.25,
+            "accuracy_std": 0.0,
+            "balanced_acc": 0.25,
+            "f1_macro": 0.18333333333333335
+        },
+        "Bandpower + Random Forest": {
+            "accuracy_mean": 0.25,
+            "accuracy_std": 0.0,
+            "balanced_acc": 0.25,
+            "f1_macro": 0.14285714285714285
+        },
+        "PyTorch EEGNet DL": {
+            "accuracy_mean": 0.125,
+            "accuracy_std": 0.125,
+            "balanced_acc": 0.125,
+            "f1_macro": 0.08333333333333333
+        }
+    }
+}

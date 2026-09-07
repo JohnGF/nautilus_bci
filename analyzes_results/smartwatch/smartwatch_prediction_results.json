@@ -1,0 +1,207 @@
+{
+    "script": "scripts/analysis/smartwatch_prediction_pipeline.py",
+    "dataset_source": "scripts/bids/bids_baseline/sub-01/ses-02 (Motion + Physio PPG)",
+    "modalities_used": [
+        "Smartwatch IMU 6-Axis Motion (Accelerometer & Gyroscope)",
+        "Smartwatch Optical PPG (Pulse & HRV)"
+    ],
+    "n_samples": 157,
+    "n_features": 35,
+    "n_classes": 4,
+    "class_labels": [
+        "water",
+        "earth",
+        "wind",
+        "fire"
+    ],
+    "cv_strategy": "Stratified 5-Fold Cross-Validation",
+    "models_evaluated": {
+        "Random Forest (RF)": {
+            "accuracy": 0.25477707006369427,
+            "balanced_accuracy": 0.2552884615384615,
+            "f1_macro": 0.2558060303893637,
+            "precision_macro": 0.25665780696268503,
+            "recall_macro": 0.2552884615384615,
+            "mean_roc_auc": 0.5059883384035926,
+            "confusion_matrix": [
+                [
+                    11,
+                    10,
+                    9,
+                    9
+                ],
+                [
+                    6,
+                    11,
+                    11,
+                    11
+                ],
+                [
+                    14,
+                    9,
+                    7,
+                    10
+                ],
+                [
+                    8,
+                    6,
+                    14,
+                    11
+                ]
+            ]
+        },
+        "Gradient Boosting (GBM)": {
+            "accuracy": 0.2484076433121019,
+            "balanced_accuracy": 0.24871794871794872,
+            "f1_macro": 0.2489176332076432,
+            "precision_macro": 0.2504344056156642,
+            "recall_macro": 0.24871794871794872,
+            "mean_roc_auc": 0.47652198319571204,
+            "confusion_matrix": [
+                [
+                    12,
+                    9,
+                    12,
+                    6
+                ],
+                [
+                    9,
+                    11,
+                    10,
+                    9
+                ],
+                [
+                    11,
+                    10,
+                    8,
+                    11
+                ],
+                [
+                    11,
+                    6,
+                    14,
+                    8
+                ]
+            ]
+        },
+        "Support Vector Machine (SVC-RBF)": {
+            "accuracy": 0.17834394904458598,
+            "balanced_accuracy": 0.17868589743589744,
+            "f1_macro": 0.16107708520348726,
+            "precision_macro": 0.1664325150349995,
+            "recall_macro": 0.17868589743589744,
+            "mean_roc_auc": 0.4855742068665797,
+            "confusion_matrix": [
+                [
+                    1,
+                    12,
+                    8,
+                    18
+                ],
+                [
+                    4,
+                    9,
+                    3,
+                    23
+                ],
+                [
+                    5,
+                    15,
+                    5,
+                    15
+                ],
+                [
+                    8,
+                    13,
+                    5,
+                    13
+                ]
+            ]
+        },
+        "L2 Logistic Regression (LogReg)": {
+            "accuracy": 0.21019108280254778,
+            "balanced_accuracy": 0.21009615384615388,
+            "f1_macro": 0.21107992584200228,
+            "precision_macro": 0.21755829719539396,
+            "recall_macro": 0.21009615384615388,
+            "mean_roc_auc": 0.4811694190931479,
+            "confusion_matrix": [
+                [
+                    6,
+                    6,
+                    9,
+                    18
+                ],
+                [
+                    6,
+                    9,
+                    10,
+                    14
+                ],
+                [
+                    7,
+                    9,
+                    9,
+                    15
+                ],
+                [
+                    12,
+                    13,
+                    5,
+                    9
+                ]
+            ]
+        },
+        "Multi-Layer Perceptron (MLP Neural Net)": {
+            "accuracy": 0.27388535031847133,
+            "balanced_accuracy": 0.27371794871794874,
+            "f1_macro": 0.274706170150963,
+            "precision_macro": 0.277175427910722,
+            "recall_macro": 0.27371794871794874,
+            "mean_roc_auc": 0.5153547370708388,
+            "confusion_matrix": [
+                [
+                    9,
+                    6,
+                    11,
+                    13
+                ],
+                [
+                    11,
+                    10,
+                    9,
+                    9
+                ],
+                [
+                    8,
+                    12,
+                    12,
+                    8
+                ],
+                [
+                    16,
+                    6,
+                    5,
+                    12
+                ]
+            ]
+        }
+    },
+    "feature_importance_top15": {
+        "imu_gyro_z_std": 0.05781805343325257,
+        "imu_acc_x_std": 0.05472527463861491,
+        "imu_acc_spectral_entropy": 0.0521699886178797,
+        "imu_acc_x_mean": 0.04606799125840043,
+        "imu_acc_mag_std": 0.045382382230699625,
+        "imu_gyro_energy": 0.04430557197021682,
+        "imu_gyro_mag_mean": 0.04402995955626263,
+        "imu_acc_mag_max": 0.04307314167222133,
+        "imu_gyro_x_mean": 0.04284864686433194,
+        "imu_acc_z_mean": 0.04213194913743494,
+        "imu_gyro_mag_max": 0.04197486071282612,
+        "imu_acc_y_std": 0.03971134617119364,
+        "ppg_ppg_mean": 0.039425522414894505,
+        "imu_gyro_y_mean": 0.038706141140905974,
+        "imu_acc_mag_jerk": 0.038702749917558905
+    }
+}

@@ -1,0 +1,60 @@
+{
+    "dataset": "bids_tower_defense",
+    "subject": "01",
+    "session": "01",
+    "task": "recall",
+    "total_trials": 83,
+    "class_distribution": {
+        "FIRE": 22,
+        "WATER": 22,
+        "WIND": 22,
+        "ELECTRICITY": 17
+    },
+    "recall_epoch_window": [
+        0.5,
+        4.5
+    ],
+    "blinking_epoch_window": [
+        0.5,
+        4.5
+    ],
+    "spatial_filter_applied": "robust_car",
+    "models_benchmark": {
+        "Riemannian TS + LogReg": {
+            "accuracy_mean": 0.19191176470588237,
+            "accuracy_std": 0.0555329634955859,
+            "balanced_acc": 0.19518716577540107,
+            "f1_macro": 0.1935124952566813
+        },
+        "Riemannian TS + SVM (RBF)": {
+            "accuracy_mean": 0.20514705882352943,
+            "accuracy_std": 0.08885809611776938,
+            "balanced_acc": 0.19318181818181818,
+            "f1_macro": 0.1640232911571358
+        },
+        "Riemannian MDM": {
+            "accuracy_mean": 0.27794117647058825,
+            "accuracy_std": 0.03546222221113969,
+            "balanced_acc": 0.2914438502673797,
+            "f1_macro": 0.2163525132275132
+        },
+        "One-vs-Rest CSP + LDA": {
+            "accuracy_mean": 0.4073529411764706,
+            "accuracy_std": 0.14148251142124346,
+            "balanced_acc": 0.39639037433155083,
+            "f1_macro": 0.40031351949956606
+        },
+        "Bandpower + Random Forest": {
+            "accuracy_mean": 0.2772058823529412,
+            "accuracy_std": 0.09759211778257092,
+            "balanced_acc": 0.2647058823529411,
+            "f1_macro": 0.2505952380952381
+        },
+        "PyTorch EEGNet DL": {
+            "accuracy_mean": 0.20588235294117646,
+            "accuracy_std": 0.13128655365097439,
+            "balanced_acc": 0.196524064171123,
+            "f1_macro": 0.19014801110083257
+        }
+    }
+}

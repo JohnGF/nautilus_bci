@@ -1,0 +1,6 @@
+Algorithm / Model,Accuracy,Balanced Accuracy,F1-Score (Macro),Precision,Recall,ROC-AUC
+Random Forest (RF),25.48%,25.53%,0.2558,0.2567,0.2553,0.5060
+Gradient Boosting (GBM),24.84%,24.87%,0.2489,0.2504,0.2487,0.4765
+Support Vector Machine (SVC-RBF),17.83%,17.87%,0.1611,0.1664,0.1787,0.4856
+L2 Logistic Regression (LogReg),21.02%,21.01%,0.2111,0.2176,0.2101,0.4812
+Multi-Layer Perceptron (MLP Neural Net),27.39%,27.37%,0.2747,0.2772,0.2737,0.5154

@@ -133,25 +133,22 @@ class HeadMapCanvas(QtWidgets.QGraphicsView):
             self.dots[name] = ellipse
             self.labels[name] = text_item
 
-    def update_channel_status(self, channel_stds, channel_maxs):
+    def update_channel_status(self, channel_stds, channel_maxs, status_colors=None):
         """Color dots based on electrode contact / positioning status."""
         for name in self.channel_names:
             if name not in self.dots:
                 continue
             
-            std = channel_stds.get(name, 0.0)
-            max_val = channel_maxs.get(name, 0.0)
-
-            # Check contact/positioning status (using AC filtered variance & reasonable limits)
-            if std < 0.2:
-                # 🔴 NO CONTACT / DISCONNECTED
-                color = QtGui.QColor(231, 76, 60)
-            elif std > 250.0:
-                # 🟡 LOOSE CONTACT / ARTIFACT
-                color = QtGui.QColor(241, 196, 15)
+            if status_colors and name in status_colors:
+                color = status_colors[name]
             else:
-                # 🟢 POSITIONED / GOOD CONTACT
-                color = QtGui.QColor(46, 204, 113)
+                std = channel_stds.get(name, 0.0)
+                if std < 0.1:
+                    color = QtGui.QColor(231, 76, 60)
+                elif std > 180.0:
+                    color = QtGui.QColor(241, 196, 15)
+                else:
+                    color = QtGui.QColor(46, 204, 113)
 
             self.dots[name].setBrush(QtGui.QBrush(color))
 

@@ -1,0 +1,72 @@
+{
+    "dataset": "bids_tower_defense",
+    "subject": "01",
+    "sessions": [
+        "1",
+        "2"
+    ],
+    "condition": "all",
+    "total_trials": 95,
+    "session_trial_counts": {
+        "ses-01": 83,
+        "ses-02": 12
+    },
+    "class_distribution": {
+        "FIRE": 25,
+        "WATER": 25,
+        "WIND": 25,
+        "ELECTRICITY": 20
+    },
+    "pooled_cv_benchmark": {
+        "Riemannian TS + LogReg": {
+            "accuracy_mean": 0.2,
+            "accuracy_std": 0.06982367979695578,
+            "balanced_acc": 0.195,
+            "f1_macro": 0.19891548463356976
+        },
+        "Riemannian TS + SVM (RBF)": {
+            "accuracy_mean": 0.22105263157894733,
+            "accuracy_std": 0.061378440998371586,
+            "balanced_acc": 0.21000000000000002,
+            "f1_macro": 0.17896825396825394
+        },
+        "Riemannian MDM": {
+            "accuracy_mean": 0.2,
+            "accuracy_std": 0.021052631578947368,
+            "balanced_acc": 0.19000000000000003,
+            "f1_macro": 0.16847826086956522
+        },
+        "One-vs-Rest CSP + LDA": {
+            "accuracy_mean": 0.25263157894736843,
+            "accuracy_std": 0.06982367979695578,
+            "balanced_acc": 0.24,
+            "f1_macro": 0.17269635126777982
+        },
+        "Bandpower + Random Forest": {
+            "accuracy_mean": 0.28421052631578947,
+            "accuracy_std": 0.10837505411565262,
+            "balanced_acc": 0.2725,
+            "f1_macro": 0.2628306878306878
+        },
+        "PyTorch EEGNet DL": {
+            "accuracy_mean": 0.1894736842105263,
+            "accuracy_std": 0.0855161937330101,
+            "balanced_acc": 0.19,
+            "f1_macro": 0.18834586466165412
+        }
+    },
+    "cross_session_transfer": {
+        "Riemannian TS + LogReg": {
+            "accuracy": 0.25,
+            "f1_macro": 0.1
+        },
+        "Riemannian MDM": {
+            "accuracy": 0.3333333333333333,
+            "f1_macro": 0.23214285714285715
+        },
+        "Bandpower + Random Forest": {
+            "accuracy": 0.3333333333333333,
+            "f1_macro": 0.25
+        }
+    }
+}

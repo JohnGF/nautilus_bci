@@ -1,0 +1,55 @@
+{
+    "dataset": "bids_tower_defense",
+    "subject": "01",
+    "session": "03",
+    "condition": "all",
+    "task": "leftright",
+    "total_trials": 24,
+    "min_class_count": 6,
+    "cv_splits": 5,
+    "class_distribution": {
+        "FIRE": 6,
+        "WATER": 6,
+        "WIND": 6,
+        "ELECTRICITY": 6
+    },
+    "spatial_filter_applied": "robust_car",
+    "models_benchmark": {
+        "Riemannian TS + LogReg": {
+            "accuracy_mean": 0.22000000000000003,
+            "accuracy_std": 0.20396078054371142,
+            "balanced_acc": 0.20833333333333331,
+            "f1_macro": 0.22948232323232323
+        },
+        "Riemannian TS + SVM (RBF)": {
+            "accuracy_mean": 0.13,
+            "accuracy_std": 0.1661324772583615,
+            "balanced_acc": 0.125,
+            "f1_macro": 0.10882352941176471
+        },
+        "Riemannian MDM": {
+            "accuracy_mean": 0.21000000000000002,
+            "accuracy_std": 0.18,
+            "balanced_acc": 0.20833333333333331,
+            "f1_macro": 0.21761363636363637
+        },
+        "One-vs-Rest CSP + LDA": {
+            "accuracy_mean": 1.0,
+            "accuracy_std": 0.0,
+            "balanced_acc": 1.0,
+            "f1_macro": 1.0
+        },
+        "Bandpower + Random Forest": {
+            "accuracy_mean": 0.13,
+            "accuracy_std": 0.10770329614269007,
+            "balanced_acc": 0.125,
+            "f1_macro": 0.11538461538461539
+        },
+        "PyTorch EEGNet DL": {
+            "accuracy_mean": 0.27999999999999997,
+            "accuracy_std": 0.16,
+            "balanced_acc": 0.29166666666666663,
+            "f1_macro": 0.21875
+        }
+    }
+}

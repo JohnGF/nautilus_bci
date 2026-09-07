@@ -115,7 +115,25 @@ All models evaluated using 5-Fold Stratified Cross-Validation across 4 classes (
 
 ---
 
-## 6. Software Architecture Index
+---
+
+## 6. Music Perception-Imagery-Reinforcement Aware Transfer Learning
+
+Full documentation and mathematical derivations available at [`MUSIC_PERCEPTION_IMAGERY_TRANSFER.md`](file:///C:/Users/VR/Documents/GitHub/nautilus_bci/scripts/docs/MUSIC_PERCEPTION_IMAGERY_TRANSFER.md).
+
+### Core Discoveries
+1. **Representational Similarity ($r = +0.657$)**:
+   - Representational Dissimilarity Matrices (RDMs) show that mental recall and auditory imagery of elemental spell songs reconstitute the same cortical geometric manifold formed during continuous perceptual music listening (`bids_music/ses-02`).
+2. **Riemannian Geometric Reference Whitening**:
+   - Centering Tower Defense imagery covariance matrices around the geometric mean of continuous music listening ($\mathbf{C}_{\text{ref}}^{\text{music}}$) eliminates inter-session baseline drift and resting EEG noise:
+     $$\mathbf{\tilde{C}}_i = (\mathbf{C}_{\text{ref}}^{\text{music}})^{-1/2} \, \mathbf{C}_i \, (\mathbf{C}_{\text{ref}}^{\text{music}})^{-1/2}$$
+3. **Reinforcement Memory Retention Boost**:
+   - In memory retention with auditory reinforcement (`bids_tower_defense/ses-04`), 4-class accuracy rose from 43.75% to **50.00% ± 17.7%** (peak fold: **75.0%**, 2x chance level).
+   - In 4-class elemental recall (`ses-01`), Riemannian-whitened Tangent Space with ExtraTrees reached **38.53% ± 11.1%** (peak fold: **52.9%**).
+
+---
+
+## 7. Software Architecture Index
 
 | Script File | Language | Primary Purpose |
 | :--- | :--- | :--- |
@@ -125,6 +143,9 @@ All models evaluated using 5-Fold Stratified Cross-Validation across 4 classes (
 | `left_right_task.py` | Python (PySide6) | 4-Direction motor imagery task presentation interface |
 | `music_memory_task.py` | Python (PySide6) | 6-Track music memory recall presentation interface |
 | `analyze_bids_dataset.py` | Python (MNE/scikit-learn) | BIDS dataset signal analysis, FBCSP feature extraction, and ML scoring |
+| `analyze_music_aware_tower_defense.py` | Python (MNE/pyriemann) | Unified Perception-Imagery-Reinforcement BCI Studio across all TD sessions |
+| `music_transfer_tower_defense.py` | Python (PyTorch/pyriemann) | Transfer learning benchmark comparing EEGNet, RCSP, and Riemannian TS |
 | `lsl_viewer.py` | Python (pyqtgraph) | Fullscreen 32-channel stacked waveform plot |
 | `eeg_features.py` | Python | Vectorized relative band power feature analyzer |
 | `rhythm_visualizer.py` | Python (PySide6) | Interactive brain rhythm visualizer and simulator dashboard |
+

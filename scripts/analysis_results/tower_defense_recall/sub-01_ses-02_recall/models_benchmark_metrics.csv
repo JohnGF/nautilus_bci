@@ -1,0 +1,6 @@
+Model,accuracy_mean,accuracy_std,balanced_acc,f1_macro,accuracy_pct,std_pct
+Riemannian TS + LogReg,0.125,0.125,0.125,0.08333333333333333,12.5,12.5
+Riemannian TS + SVM (RBF),0.125,0.125,0.125,0.08333333333333333,12.5,12.5
+Riemannian MDM,0.25,0.0,0.25,0.18333333333333335,25.0,0.0
+Bandpower + Random Forest,0.25,0.0,0.25,0.14285714285714285,25.0,0.0
+PyTorch EEGNet DL,0.125,0.125,0.125,0.08333333333333333,12.5,12.5
