@@ -1,0 +1,5 @@
+onset	duration	trial_type	value	sample
+14.376	0.002	Log system started successfully.	3	3594
+14.376	0.0	BCI_Gameplay_Started	1	3594
+14.38	0.0	Game_Started_scene_bci_gameplay	2	3595
+15.736	0.0	Trial_Start_Enemy_Fogo	4	3934
