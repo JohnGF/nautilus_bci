@@ -1,0 +1,7 @@
+Rank,Pair,N,CSP+LDA (%),Riemannian TS (%),Riemannian SVM (%),FBCSP (%),Welch PSD (%),Best Pipeline
+1,FIRE vs. WIND,22,59.0 ± 15.6,69.0,59.0,59.0,73.0,Welch_PSD_ShrinkageLDA (73.0%)
+2,FIRE vs. WATER,24,37.0 ± 22.7,71.0,67.0,54.0,50.0,Riemannian_TangentSpace_LogReg (71.0%)
+3,WIND vs. ELECTRICITY,20,55.0 ± 18.7,65.0,70.0,35.0,70.0,Riemannian_TangentSpace_SVM_Linear (70.0%)
+4,FIRE vs. ELECTRICITY,22,64.0 ± 9.7,59.0,63.0,63.0,58.0,Riemannian_TangentSpace_Ridge (67.0%)
+5,WATER vs. ELECTRICITY,22,44.0 ± 15.9,55.0,55.0,45.0,31.0,Riemannian_TangentSpace_SVM_Linear (55.0%)
+6,WATER vs. WIND,22,49.0 ± 20.3,45.0,40.0,46.0,49.0,CSP_ShrinkageLDA (49.0%)

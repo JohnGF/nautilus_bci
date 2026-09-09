@@ -128,7 +128,9 @@ def extract_session_epochs(clean_eeg, df_events, ses_id, sfreq=250.0, win_len_s=
     """Extracts Imagine, Listen, and Blinking epochs from a preprocessed session."""
     class_map = {'FIRE': 0, 'WATER': 1, 'WIND': 2, 'ELECTRICITY': 3}
     class_names = ['FIRE', 'WATER', 'WIND', 'ELECTRICITY']
-    events_list = df_events.to_dict('records')
+    # Deduplicate event records if any repeated rows exist at same trial_type & sample
+    df_events_clean = df_events.drop_duplicates(subset=['trial_type', 'sample'], keep='first')
+    events_list = df_events_clean.to_dict('records')
     n_samples_win = int(win_len_s * sfreq)
     
     epochs_im, epochs_lis, epochs_blk, labels, meta = [], [], [], [], []
@@ -165,24 +167,32 @@ def extract_session_epochs(clean_eeg, df_events, ses_id, sfreq=250.0, win_len_s=
     # 2. Standard or Legacy Tower Defense session with trials
     has_listen = any(ev.get('trial_type') == 'Start Listen' for ev in events_list)
     
+    last_im_sample = -100000
     for i, ev in enumerate(events_list):
         tt = str(ev.get('trial_type', ''))
         if 'selected' in tt:
             element = tt.replace(' selected', '').strip()
             if element in class_map:
                 cls_id = class_map[element]
+                cur_sample = int(ev['sample'])
+                if cur_sample - last_im_sample < int(2.0 * sfreq):
+                    continue
+                last_im_sample = cur_sample
                 
                 listen_s = None
                 blink_s = None
                 stop_blink_s = None
-                for j in range(max(0, i - 8), min(len(events_list), i + 4)):
+                for j in range(i - 1, max(-1, i - 16), -1):
                     cand_tt = events_list[j].get('trial_type', '')
-                    if cand_tt == 'Start Listen':
-                        listen_s = int(events_list[j]['sample'])
-                    elif cand_tt == 'Box start blinking':
-                        blink_s = int(events_list[j]['sample'])
-                    elif cand_tt == 'Box stop blinking':
-                        stop_blink_s = int(events_list[j]['sample'])
+                    cand_samp = int(events_list[j]['sample'])
+                    if cand_tt == 'Start Listen' and listen_s is None:
+                        listen_s = cand_samp
+                    elif cand_tt == 'Box start blinking' and blink_s is None:
+                        blink_s = cand_samp
+                    elif cand_tt == 'Box stop blinking' and stop_blink_s is None:
+                        stop_blink_s = cand_samp
+                    if 'selected' in cand_tt:
+                        break
                         
                 # Determine imagine onset
                 # In sessions without listening (e.g. bids_tower_defense(old)),
@@ -1071,6 +1081,7 @@ def run_tower_defense_rhythm_analysis(
     # 1. Discover sessions (support multiple BIDS roots separated by comma)
     bids_root_list = [p.strip() for p in bids_root.split(",") if p.strip()]
     
+    roots_with_sub = [b for b in bids_root_list if os.path.exists(os.path.join(b, f"sub-{sub_clean}"))]
     session_tuples = []  # (bids_dir, ses_clean, display_name)
     for b_root in bids_root_list:
         sub_dir = os.path.join(b_root, f"sub-{sub_clean}")
@@ -1080,7 +1091,7 @@ def run_tower_defense_rhythm_analysis(
         for s in discovered:
             if ses_id == "all" or s in [x.strip().replace("ses-", "") for x in ses_id.split(",")]:
                 b_name = os.path.basename(os.path.normpath(b_root))
-                disp = f"{b_name}_ses-{s}" if len(bids_root_list) > 1 else f"ses-{s}"
+                disp = f"{b_name}_ses-{s}" if len(roots_with_sub) > 1 else f"ses-{s}"
                 session_tuples.append((b_root, s, disp))
                 
     if not session_tuples:
@@ -1186,6 +1197,33 @@ def run_tower_defense_rhythm_analysis(
         print("[*] Computing Representational Similarity Analysis (RSA)...")
         rdm_lis, rdm_im, rsa_rho, rsa_p = compute_representational_similarity(X_lis_pooled, X_im_pooled, y_pooled, class_names)
         print(f"    [+] RSA Spearman Correlation: rho = {rsa_rho:.3f} (p = {rsa_p:.4f})")
+        
+        # Plot and save RDM figure
+        fig_rsa, axes_rsa = plt.subplots(1, 2, figsize=(11, 4.8), dpi=300)
+        im0 = axes_rsa[0].imshow(rdm_lis, cmap='viridis', interpolation='nearest')
+        axes_rsa[0].set_title("Auditory Perception (Listen RDM)", fontsize=11, fontweight='bold')
+        axes_rsa[0].set_xticks(range(len(class_names)))
+        axes_rsa[0].set_xticklabels(class_names, rotation=25, fontweight='bold')
+        axes_rsa[0].set_yticks(range(len(class_names)))
+        axes_rsa[0].set_yticklabels(class_names, fontweight='bold')
+        for r in range(len(class_names)):
+            for c in range(len(class_names)):
+                axes_rsa[0].text(c, r, f"{rdm_lis[r, c]:.2f}", ha="center", va="center", color="white" if rdm_lis[r, c] < 0.5 else "black", fontsize=9, fontweight='bold')
+        fig_rsa.colorbar(im0, ax=axes_rsa[0], fraction=0.046, pad=0.04)
+
+        im1 = axes_rsa[1].imshow(rdm_im, cmap='viridis', interpolation='nearest')
+        axes_rsa[1].set_title(f"Mental Imagery (Imagine RDM)\nSpearman rho = {rsa_rho:.3f} (p = {rsa_p:.4f})", fontsize=11, fontweight='bold')
+        axes_rsa[1].set_xticks(range(len(class_names)))
+        axes_rsa[1].set_xticklabels(class_names, rotation=25, fontweight='bold')
+        axes_rsa[1].set_yticks(range(len(class_names)))
+        axes_rsa[1].set_yticklabels(class_names, fontweight='bold')
+        for r in range(len(class_names)):
+            for c in range(len(class_names)):
+                axes_rsa[1].text(c, r, f"{rdm_im[r, c]:.2f}", ha="center", va="center", color="white" if rdm_im[r, c] < 0.5 else "black", fontsize=9, fontweight='bold')
+        fig_rsa.colorbar(im1, ax=axes_rsa[1], fraction=0.046, pad=0.04)
+        plt.tight_layout()
+        fig_rsa.savefig(os.path.join(session_out_dir, "rsa_perception_imagery_rdm.png"), bbox_inches='tight')
+        plt.close(fig_rsa)
     else:
         rsa_rho, rsa_p = None, None
     
@@ -1318,6 +1356,49 @@ def run_tower_defense_rhythm_analysis(
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(master_summary, f, indent=2)
     print(f"[+] Exported Master JSON Summary: {json_path}")
+    
+    # Export Benchmark Metrics CSV
+    metrics_rows = []
+    for m_name, m_stats in summary_im.items():
+        metrics_rows.append({
+            'Model': m_name,
+            'Phase': 'Mental Imagery',
+            'accuracy_mean': m_stats.get('mean_accuracy', 0.0),
+            'accuracy_std': m_stats.get('std_accuracy', 0.0),
+            'balanced_acc': m_stats.get('balanced_accuracy', 0.0),
+            'f1_macro': m_stats.get('macro_f1', 0.0),
+            'cohen_kappa': m_stats.get('cohen_kappa', 0.0),
+            'accuracy_pct': m_stats.get('mean_accuracy', 0.0) * 100.0,
+            'std_pct': m_stats.get('std_accuracy', 0.0) * 100.0
+        })
+    if summary_lis is not None:
+        for m_name, m_stats in summary_lis.items():
+            metrics_rows.append({
+                'Model': m_name,
+                'Phase': 'Auditory Perception',
+                'accuracy_mean': m_stats.get('mean_accuracy', 0.0),
+                'accuracy_std': m_stats.get('std_accuracy', 0.0),
+                'balanced_acc': m_stats.get('balanced_accuracy', 0.0),
+                'f1_macro': m_stats.get('macro_f1', 0.0),
+                'cohen_kappa': m_stats.get('cohen_kappa', 0.0),
+                'accuracy_pct': m_stats.get('mean_accuracy', 0.0) * 100.0,
+                'std_pct': m_stats.get('std_accuracy', 0.0) * 100.0
+            })
+    if summary_blk is not None:
+        for m_name, m_stats in summary_blk.items():
+            metrics_rows.append({
+                'Model': m_name,
+                'Phase': 'Visual Blinking',
+                'accuracy_mean': m_stats.get('mean_accuracy', 0.0),
+                'accuracy_std': m_stats.get('std_accuracy', 0.0),
+                'balanced_acc': m_stats.get('balanced_accuracy', 0.0),
+                'f1_macro': m_stats.get('macro_f1', 0.0),
+                'cohen_kappa': m_stats.get('cohen_kappa', 0.0),
+                'accuracy_pct': m_stats.get('mean_accuracy', 0.0) * 100.0,
+                'std_pct': m_stats.get('std_accuracy', 0.0) * 100.0
+            })
+    pd.DataFrame(metrics_rows).to_csv(os.path.join(session_out_dir, "models_benchmark_metrics.csv"), index=False)
+    print(f"[+] Exported Benchmark Metrics CSV: {os.path.join(session_out_dir, 'models_benchmark_metrics.csv')}")
     
     print("\n" + "=" * 80)
     print(" ANALYSIS COMPLETED SUCCESSFULLY! ".center(80, "="))
