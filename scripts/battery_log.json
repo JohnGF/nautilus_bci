@@ -1828,5 +1828,25 @@
         "timestamp": "2026-09-09T15:52:55.318217",
         "battery_level": 60.0,
         "device_serial": "NP-2026.05.01"
+    },
+    {
+        "timestamp": "2026-09-09T15:57:55.416601",
+        "battery_level": 60.0,
+        "device_serial": "NP-2026.05.01"
+    },
+    {
+        "timestamp": "2026-09-09T16:02:55.507610",
+        "battery_level": 60.0,
+        "device_serial": "NP-2026.05.01"
+    },
+    {
+        "timestamp": "2026-09-09T16:07:55.610917",
+        "battery_level": 60.0,
+        "device_serial": "NP-2026.05.01"
+    },
+    {
+        "timestamp": "2026-09-09T16:12:55.714373",
+        "battery_level": 60.0,
+        "device_serial": "NP-2026.05.01"
     }
 ]
