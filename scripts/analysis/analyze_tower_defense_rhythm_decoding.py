@@ -108,7 +108,7 @@ def preprocess_continuous_eeg(eeg_data, sfreq=250.0, l_freq=1.0, h_freq=45.0, no
     
     if spatial_mode == "robust_car":
         stds = np.std(filt_eeg, axis=0)
-        good_mask = (stds > 2.0) & (stds < 250.0)
+        good_mask = (stds > 0.05) & (stds < 250.0)
         good_indices = np.where(good_mask)[0]
         if len(good_indices) == 0:
             good_indices = np.arange(filt_eeg.shape[1])
@@ -138,6 +138,44 @@ def extract_session_epochs(clean_eeg, df_events, ses_id, sfreq=250.0, win_len_s=
     # 1. Check if this is a continuous music listening session (e.g., bids_listening)
     is_music_session = any('Track_Start_id_' in str(ev.get('trial_type', '')) for ev in events_list)
     if is_music_session:
+        # Check if sub-02 modern songs or sub-01 classical
+        has_sub02_track = any(any(k in str(ev.get('trial_type', '')) for k in ['ItsRainingMen', 'WhatsUp', 'Thunderstruck', 'Kiss', 'IWasMadeForLovinYou']) for ev in events_list)
+        if has_sub02_track:
+            sub02_map = {
+                'Kiss': ('FIRE', 0),
+                'IWasMadeForLovinYou': ('FIRE', 0),
+                'ItsRainingMen': ('WATER', 1),
+                'WhatsUp': ('WIND', 2),
+                'Thunderstruck': ('ELECTRICITY', 3)
+            }
+            for ev in events_list:
+                tt = str(ev.get('trial_type', ''))
+                if 'Track_Start_id_' in tt:
+                    for s_name, (el_name, cls_id) in sub02_map.items():
+                        if s_name in tt:
+                            t_start = float(ev.get('onset', 5.0))
+                            t_dur = float(ev.get('duration', len(clean_eeg)/sfreq - t_start))
+                            t_end = t_start + t_dur
+                            s_start = int((t_start + 2.0) * sfreq)
+                            s_end = int((t_end - 2.0) * sfreq)
+                            step_samp = int(3.0 * sfreq)
+                            for s in range(s_start, s_end - n_samples_win, step_samp):
+                                if s + n_samples_win <= len(clean_eeg):
+                                    ep = clean_eeg[s : s + n_samples_win, :].T
+                                    epochs_im.append(ep)
+                                    epochs_lis.append(ep)
+                                    epochs_blk.append(ep)
+                                    labels.append(cls_id)
+                                    meta.append({
+                                        'session': str(ses_id),
+                                        'element': el_name,
+                                        'class_id': cls_id,
+                                        'imagine_sample': s,
+                                        'listen_sample': s
+                                    })
+            if epochs_im:
+                return np.array(epochs_im), np.array(epochs_lis), np.array(epochs_blk), np.array(labels), pd.DataFrame(meta), class_names
+
         track_map = {
             'Beethoven_Fur_Elise': ('FIRE', 0, 187.068, 416.464),
             'Bach_Prelude': ('WATER', 1, 48.98, 182.068),

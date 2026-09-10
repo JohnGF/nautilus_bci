@@ -1,0 +1,19 @@
+{
+    "onset": {
+        "Description": "Onset in seconds",
+        "Units": "s"
+    },
+    "duration": {
+        "Description": "Duration in seconds",
+        "Units": "s"
+    },
+    "sample": {
+        "Description": "Sample number at onset"
+    },
+    "value": {
+        "Description": "Numeric event identifier"
+    },
+    "trial_type": {
+        "Description": "Event type or track label"
+    }
+}
