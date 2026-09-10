@@ -1958,5 +1958,35 @@
         "timestamp": "2026-09-10T13:53:11.082053",
         "battery_level": 93.3,
         "device_serial": "NP-2026.05.01"
+    },
+    {
+        "timestamp": "2026-09-10T13:58:11.180358",
+        "battery_level": 93.3,
+        "device_serial": "NP-2026.05.01"
+    },
+    {
+        "timestamp": "2026-09-10T14:03:11.276666",
+        "battery_level": 93.3,
+        "device_serial": "NP-2026.05.01"
+    },
+    {
+        "timestamp": "2026-09-10T14:08:11.378177",
+        "battery_level": 93.3,
+        "device_serial": "NP-2026.05.01"
+    },
+    {
+        "timestamp": "2026-09-10T14:13:11.477196",
+        "battery_level": 93.3,
+        "device_serial": "NP-2026.05.01"
+    },
+    {
+        "timestamp": "2026-09-10T14:18:11.576373",
+        "battery_level": 93.3,
+        "device_serial": "NP-2026.05.01"
+    },
+    {
+        "timestamp": "2026-09-10T14:23:11.676073",
+        "battery_level": 93.3,
+        "device_serial": "NP-2026.05.01"
     }
 ]
