@@ -1,0 +1,63 @@
+{
+  "model": "Riemannian_TangentSpace_LogReg()",
+  "model_name": "RIEMANN_LOGREG_4Class_TowerDefense",
+  "algorithm_key": "riemann_logreg",
+  "algorithm_name": "Riemannian Tangent Space + Logistic Regression",
+  "dataset_folder": "bids_tower_defense",
+  "subject": "02",
+  "sessions": [
+    "01",
+    "02",
+    "03",
+    "04",
+    "05"
+  ],
+  "classes": [
+    "FIRE",
+    "WATER",
+    "WIND",
+    "ELECTRICITY"
+  ],
+  "element_mapping": {
+    "0": "FIRE",
+    "1": "WATER",
+    "2": "WIND",
+    "3": "ELECTRICITY"
+  },
+  "sfreq": 250.0,
+  "window_size_sec": 3.0,
+  "n_trials": 276,
+  "metrics": {
+    "cv_accuracy_mean": 0.377012987012987,
+    "cv_accuracy_std": 0.0464847993007539,
+    "cv_f1_macro": 0.36900015728108465,
+    "cv_cohen_kappa": 0.16934675754066847,
+    "self_accuracy": 0.9782608695652174
+  },
+  "confusion_matrix": [
+    [
+      21,
+      20,
+      16,
+      13
+    ],
+    [
+      22,
+      16,
+      14,
+      18
+    ],
+    [
+      12,
+      18,
+      29,
+      9
+    ],
+    [
+      12,
+      10,
+      8,
+      38
+    ]
+  ]
+}
