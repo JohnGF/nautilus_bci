@@ -33,6 +33,9 @@ def _ensure_environment():
     except ImportError:
         _here = Path(__file__).resolve().parent
         cand_venvs = [
+            _here.parent.parent.parent / "tower-defense-bci" / "python" / ".venv" / "bin" / "python",
+            _here.parent.parent / "tower-defense-bci" / "python" / ".venv" / "bin" / "python",
+            Path("/home/guilhermecoto/Documentos/Lasige/tower-defense-bci/python/.venv/bin/python"),
             _here.parent.parent.parent / "tower-defense-bci" / "python" / ".venv" / "Scripts" / "python.exe",
             _here.parent.parent / "tower-defense-bci" / "python" / ".venv" / "Scripts" / "python.exe",
             Path(r"c:\Users\guilh\Desktop\Lasige\tower-defense-bci\python\.venv\Scripts\python.exe")
@@ -45,7 +48,7 @@ def _ensure_environment():
                 env["PYTHONPATH"] = str(_here) + os.pathsep + env.get("PYTHONPATH", "")
                 sys.exit(subprocess.call(cmd, env=env))
         print("[Error] Required dependencies (numpy, scipy, scikit-learn) not found.")
-        print(f"Please run using the virtual environment at: tower-defense-bci/python/.venv/Scripts/python.exe")
+        print(f"Please run using the virtual environment at: tower-defense-bci/python/.venv/bin/python or Scripts/python.exe")
         sys.exit(1)
 
 _ensure_environment()
@@ -75,6 +78,8 @@ def train_model(
     dataset_name="bids_tower_defense",
     sub_id="02",
     session_ids=None,
+    include_listening=False,
+    listening_items=None,
     alg_key="riemann_logreg",
     n_splits=5,
     C_val=0.1,
@@ -86,7 +91,7 @@ def train_model(
     Trains a 4-class mental rhythm decoder across chosen dataset, subject, and sessions.
     Evaluates under n-fold Stratified Cross-Validation, exports .joblib and .json artifacts.
     """
-    if session_ids is None or len(session_ids) == 0:
+    if (session_ids is None or len(session_ids) == 0) and not include_listening:
         available = dataset.get_available_sessions(dataset_name, sub_id)
         if not available:
             raise ValueError(f"No sessions found for sub-{sub_id} in {dataset_name}")
@@ -96,11 +101,15 @@ def train_model(
     print("=" * 80)
     print(" BCI TOWER DEFENSE: RHYTHM MODEL TRAINING STUDIO ".center(80, "="))
     print("=" * 80)
-    print(f"[*] Dataset   : {dataset_name}")
-    print(f"[*] Subject   : sub-{sub_clean}")
-    print(f"[*] Sessions  : {session_ids}")
-    print(f"[*] Algorithm : {alg_key.upper()}")
-    print(f"[*] CV Folds  : {n_splits}")
+    print(f"[*] Dataset         : {dataset_name}")
+    print(f"[*] Subject         : sub-{sub_clean}")
+    print(f"[*] Game Sessions   : {session_ids if session_ids else 'None'}")
+    if include_listening:
+        print(f"[*] Music Listening : bids_listening (items: {listening_items if listening_items else 'all'})")
+    else:
+        print(f"[*] Music Listening : Disabled")
+    print(f"[*] Algorithm       : {alg_key.upper()}")
+    print(f"[*] CV Folds        : {n_splits}")
     print("=" * 80)
 
     # 1. Load Sessions
@@ -108,7 +117,9 @@ def train_model(
     X_im, y_im, stats, meta_df = dataset.load_dataset_sessions(
         dataset_name,
         sub_clean,
-        session_ids,
+        session_ids if session_ids else [],
+        include_listening=include_listening,
+        listening_item_ids=listening_items,
         sfreq=250.0,
         win_len_s=3.0,
         spatial_mode="robust_car",
@@ -191,7 +202,13 @@ def train_model(
     models_dir = _current_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    tag = custom_tag.strip() if custom_tag else f"sub{sub_clean}_{best_key}_{len(session_ids)}ses"
+    if custom_tag.strip():
+        tag = custom_tag.strip()
+    else:
+        lis_suffix = f"_{len(listening_items)}lis" if include_listening and listening_items else ("_lis" if include_listening else "")
+        n_ses = len(session_ids) if session_ids else 0
+        tag = f"sub{sub_clean}_{best_key}_{n_ses}ses{lis_suffix}"
+
     if output_path is None:
         output_path = models_dir / f"rhythm_model_{tag}.joblib"
     else:
@@ -210,6 +227,8 @@ def train_model(
         'dataset_folder': dataset_name,
         'subject': sub_clean,
         'sessions': session_ids,
+        'include_listening': include_listening,
+        'listening_items': listening_items if include_listening else [],
         'classes': ['FIRE', 'WATER', 'WIND', 'ELECTRICITY'],
         'element_mapping': algorithms.ELEMENT_NAMES,
         'sfreq': 250.0,
@@ -322,6 +341,10 @@ def main():
     parser.add_argument("--tag", type=str, default="", help="Custom model filename tag")
     parser.add_argument("--output", type=str, default=None, help="Output path for joblib model")
     parser.add_argument("--report", type=str, default=None, help="Output path for JSON report")
+    parser.add_argument("--include-listening", action="store_true", default=False,
+                        help="Include pure music listening data from bids_listening")
+    parser.add_argument("--listening-items", type=str, default=None,
+                        help="Optional comma-separated list of listening tracks/sessions to include")
 
     # Pre-Trained Model & Real-Time Pipeline flags
     parser.add_argument("--model", type=str, default=None,
@@ -370,11 +393,16 @@ def main():
     else:
         sessions = [s.strip().replace("ses-", "") for s in args.ses.split(",") if s.strip()]
 
+    # Parse listening items
+    listening_items = [s.strip() for s in args.listening_items.split(",") if s.strip()] if args.listening_items else None
+
     # Train model
     final_model, model_path, report = train_model(
         dataset_name=args.dataset,
         sub_id=args.sub,
         session_ids=sessions,
+        include_listening=args.include_listening,
+        listening_items=listening_items,
         alg_key=args.alg,
         n_splits=args.cv,
         C_val=args.C,

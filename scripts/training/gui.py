@@ -31,6 +31,9 @@ def _ensure_environment():
     except ImportError:
         _here = Path(__file__).resolve().parent
         cand_venvs = [
+            _here.parent.parent.parent / "tower-defense-bci" / "python" / ".venv" / "bin" / "python",
+            _here.parent.parent / "tower-defense-bci" / "python" / ".venv" / "bin" / "python",
+            Path("/home/guilhermecoto/Documentos/Lasige/tower-defense-bci/python/.venv/bin/python"),
             _here.parent.parent.parent / "tower-defense-bci" / "python" / ".venv" / "Scripts" / "python.exe",
             _here.parent.parent / "tower-defense-bci" / "python" / ".venv" / "Scripts" / "python.exe",
             Path(r"c:\Users\guilh\Desktop\Lasige\tower-defense-bci\python\.venv\Scripts\python.exe")
@@ -42,7 +45,7 @@ def _ensure_environment():
                 env["PYTHONPATH"] = str(_here) + os.pathsep + env.get("PYTHONPATH", "")
                 sys.exit(subprocess.call(cmd, env=env))
         print("[Error] Required dependencies (numpy, scipy, scikit-learn) not found.")
-        print(f"Please run using the virtual environment at: tower-defense-bci/python/.venv/Scripts/python.exe")
+        print(f"Please run using the virtual environment at: tower-defense-bci/python/.venv/bin/python or Scripts/python.exe")
         sys.exit(1)
 
 _ensure_environment()
@@ -93,6 +96,9 @@ class TrainingStudioGUI:
         self.selected_dataset = tk.StringVar()
         self.selected_subject = tk.StringVar()
         self.session_vars = {}
+        self.include_listening_var = tk.BooleanVar(value=False)
+        self.listening_vars = {}
+        self.listening_checkboxes = []
         self.selected_algorithm = tk.StringVar()
         self.cv_folds = tk.IntVar(value=5)
         self.reg_c = tk.DoubleVar(value=0.1)
@@ -250,14 +256,58 @@ class TrainingStudioGUI:
         self.sub_combo.bind("<<ComboboxSelected>>", self._on_subject_change)
 
         # Session Checkboxes Container
-        ttk.Label(sub_group, text="Sessions to Include in Training:").pack(anchor="w", pady=(4, 2))
+        ttk.Label(sub_group, text="Game Sessions (Tower Defense):").pack(anchor="w", pady=(4, 2))
         self.sessions_box = tk.Frame(sub_group, bg=self.card_bg, bd=1, relief=tk.GROOVE)
         self.sessions_box.pack(fill=tk.X, pady=4)
 
         btn_row = ttk.Frame(sub_group)
-        btn_row.pack(fill=tk.X, pady=(4, 2))
-        ttk.Button(btn_row, text="Select All", command=self._select_all_sessions, width=12).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(btn_row, text="Clear All", command=self._clear_all_sessions, width=12).pack(side=tk.LEFT)
+        btn_row.pack(fill=tk.X, pady=(4, 6))
+        ttk.Button(btn_row, text="Select All Game", command=self._select_all_sessions, width=14).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="Clear All Game", command=self._clear_all_sessions, width=14).pack(side=tk.LEFT)
+
+        # --- Music Listening Integration (bids_listening) ---
+        self.lis_card = tk.Frame(sub_group, bg=self.card_bg, bd=1, relief=tk.RIDGE, padx=8, pady=8)
+        self.lis_card.pack(fill=tk.X, pady=(8, 2))
+
+        lis_top_row = tk.Frame(self.lis_card, bg=self.card_bg)
+        lis_top_row.pack(fill=tk.X)
+
+        self.lis_master_cb = tk.Checkbutton(
+            lis_top_row,
+            text="🎧 Add Music Listening (bids_listening)",
+            variable=self.include_listening_var,
+            bg=self.card_bg,
+            fg="#58a6ff",
+            selectcolor="#1f6feb",
+            activebackground=self.card_bg,
+            activeforeground="#79c0ff",
+            font=("Segoe UI", 10, "bold"),
+            command=self._on_toggle_include_listening
+        )
+        self.lis_master_cb.pack(side=tk.LEFT, anchor="w")
+
+        # Subtitle note indicating event markers vs song sessions
+        self.lis_mode_note = tk.Label(
+            self.lis_card,
+            text="",
+            bg=self.card_bg,
+            fg=self.metric_title_color,
+            font=("Segoe UI", 8, "italic"),
+            wraplength=420,
+            justify=tk.LEFT
+        )
+        self.lis_mode_note.pack(anchor="w", pady=(2, 4))
+
+        # Listening Tracks / Sessions Box
+        self.listening_box = tk.Frame(self.lis_card, bg=self.input_bg, bd=1, relief=tk.GROOVE)
+        self.listening_box.pack(fill=tk.X, pady=4)
+
+        lis_btn_row = tk.Frame(self.lis_card, bg=self.card_bg)
+        lis_btn_row.pack(fill=tk.X, pady=(4, 0))
+        self.btn_select_all_lis = ttk.Button(lis_btn_row, text="Select All Music", command=self._select_all_listening, width=15)
+        self.btn_select_all_lis.pack(side=tk.LEFT, padx=(0, 4))
+        self.btn_clear_all_lis = ttk.Button(lis_btn_row, text="Clear All Music", command=self._clear_all_listening, width=15)
+        self.btn_clear_all_lis.pack(side=tk.LEFT)
 
         # Section 3: Algorithm Selection
         alg_group = ttk.LabelFrame(scrollable_frame, text=" 3. Decoding Algorithm ", padding=10)
@@ -502,6 +552,7 @@ class TrainingStudioGUI:
         else:
             self.selected_subject.set("")
             self._refresh_session_checkboxes([])
+            self._refresh_listening_checkboxes("")
 
     def _on_subject_change(self, event=None):
         ds_key = self.selected_dataset.get()
@@ -511,6 +562,7 @@ class TrainingStudioGUI:
 
         sessions = dataset.get_available_sessions(ds_key, sub_id)
         self._refresh_session_checkboxes(sessions)
+        self._refresh_listening_checkboxes(sub_id)
 
     def _refresh_session_checkboxes(self, sessions):
         for widget in self.sessions_box.winfo_children():
@@ -567,6 +619,110 @@ class TrainingStudioGUI:
         for v in self.session_vars.values():
             v.set(False)
 
+    def _refresh_listening_checkboxes(self, sub_id):
+        for widget in self.listening_box.winfo_children():
+            widget.destroy()
+
+        self.listening_vars.clear()
+        self.listening_checkboxes.clear()
+
+        sub_clean = sub_id.replace("sub-", "")
+        if not sub_clean or not dataset.has_listening_data(sub_clean):
+            self.lis_mode_note.config(text="No bids_listening data available for this subject.")
+            lbl = tk.Label(
+                self.listening_box,
+                text="No music listening data found.",
+                bg=self.input_bg,
+                fg=self.muted_fg,
+                font=("Segoe UI", 9)
+            )
+            lbl.pack(padx=8, pady=6)
+            self._on_toggle_include_listening()
+            return
+
+        items = dataset.get_available_listening_items(sub_clean)
+        if sub_clean == "01":
+            self.lis_mode_note.config(
+                text="🎵 sub-01: Continuous recording (ses-02) divided into tracks by event markers."
+            )
+        elif sub_clean == "02":
+            self.lis_mode_note.config(
+                text="🎵 sub-02: Divided into 4 individual song session folders (ses-01..ses-04)."
+            )
+        else:
+            self.lis_mode_note.config(text=f"🎵 sub-{sub_clean}: {len(items)} listening items.")
+
+        elem_colors = {
+            'FIRE': ('#da3633', '#ffffff'),
+            'WATER': ('#1f6feb', '#ffffff'),
+            'WIND': ('#238636', '#ffffff'),
+            'ELECTRICITY': ('#d29922', '#ffffff')
+        }
+
+        for item in items:
+            var = tk.BooleanVar(value=True)
+            self.listening_vars[item['id']] = var
+
+            row = tk.Frame(self.listening_box, bg=self.input_bg, pady=2, padx=4)
+            row.pack(fill=tk.X, padx=4, pady=1)
+
+            cb = tk.Checkbutton(
+                row,
+                text=item['display_name'],
+                variable=var,
+                bg=self.input_bg,
+                fg="#ffffff",
+                selectcolor="#1f6feb",
+                activebackground=self.input_bg,
+                activeforeground="#58a6ff",
+                font=("Segoe UI", 9)
+            )
+            cb.pack(side=tk.LEFT)
+            self.listening_checkboxes.append(cb)
+
+            elem = item.get('element', '')
+            bg_color, fg_color = elem_colors.get(elem, ('#30363d', '#79c0ff'))
+            elem_badge = tk.Label(
+                row,
+                text=elem,
+                bg=bg_color,
+                fg=fg_color,
+                font=("Segoe UI", 8, "bold"),
+                padx=5,
+                pady=0
+            )
+            elem_badge.pack(side=tk.LEFT, padx=(6, 4))
+
+            n_trials = item.get('trials', 0)
+            t_badge = tk.Label(
+                row,
+                text=f"{n_trials} trials",
+                bg="#30363d",
+                fg="#c9d1d9",
+                font=("Segoe UI", 8),
+                padx=5,
+                pady=0
+            )
+            t_badge.pack(side=tk.LEFT)
+
+        self._on_toggle_include_listening()
+
+    def _on_toggle_include_listening(self):
+        enabled = self.include_listening_var.get()
+        state = "normal" if enabled else "disabled"
+        for cb in self.listening_checkboxes:
+            cb.config(state=state)
+        self.btn_select_all_lis.config(state=state)
+        self.btn_clear_all_lis.config(state=state)
+
+    def _select_all_listening(self):
+        for v in self.listening_vars.values():
+            v.set(True)
+
+    def _clear_all_listening(self):
+        for v in self.listening_vars.values():
+            v.set(False)
+
     def _on_algorithm_change(self, event=None):
         disp = self.alg_combo.get()
         alg_key = self.display_to_key.get(disp, "riemann_logreg")
@@ -606,8 +762,16 @@ class TrainingStudioGUI:
 
     def _start_training_thread(self):
         selected_sessions = [ses for ses, var in self.session_vars.items() if var.get()]
-        if not selected_sessions:
-            messagebox.showwarning("No Sessions Selected", "Please select at least one session to train.")
+        include_listening = self.include_listening_var.get()
+        selected_listening_items = [
+            item_id for item_id, var in self.listening_vars.items() if var.get()
+        ] if include_listening else []
+
+        if not selected_sessions and not selected_listening_items:
+            messagebox.showwarning(
+                "No Data Selected",
+                "Please select at least one Tower Defense session or Music Listening item to train."
+            )
             return
 
         self.train_btn.config(state="disabled")
@@ -620,6 +784,8 @@ class TrainingStudioGUI:
                 self.selected_dataset.get(),
                 self.selected_subject.get(),
                 selected_sessions,
+                include_listening,
+                selected_listening_items,
                 self.display_to_key.get(self.alg_combo.get(), "riemann_logreg"),
                 self.cv_folds.get(),
                 self.reg_c.get(),
@@ -629,14 +795,21 @@ class TrainingStudioGUI:
         )
         worker.start()
 
-    def _run_training_worker(self, ds_key, sub_id, session_ids, alg_key, n_splits, C_val, custom_tag):
+    def _run_training_worker(
+        self, ds_key, sub_id, session_ids, include_listening, listening_items,
+        alg_key, n_splits, C_val, custom_tag
+    ):
         try:
             self._log("=" * 72)
             self._log(f"[*] STARTING MODEL TRAINING STUDIO")
-            self._log(f" • Dataset  : {ds_key}")
-            self._log(f" • Subject  : sub-{sub_id}")
-            self._log(f" • Sessions : {session_ids}")
-            self._log(f" • Algorithm: {alg_key.upper()}")
+            self._log(f" • Dataset        : {ds_key}")
+            self._log(f" • Subject        : sub-{sub_id}")
+            self._log(f" • Game Sessions  : {session_ids if session_ids else 'None'}")
+            if include_listening:
+                self._log(f" • Music Listening: bids_listening ({len(listening_items)} items: {listening_items})")
+            else:
+                self._log(f" • Music Listening: Disabled")
+            self._log(f" • Algorithm      : {alg_key.upper()}")
             self._log("=" * 72)
 
             def progress_cb(msg, frac):
@@ -648,6 +821,8 @@ class TrainingStudioGUI:
                 ds_key,
                 sub_id,
                 session_ids,
+                include_listening=include_listening,
+                listening_item_ids=listening_items,
                 sfreq=250.0,
                 win_len_s=3.0,
                 progress_callback=progress_cb
@@ -740,7 +915,12 @@ class TrainingStudioGUI:
             models_dir = _current_dir / "models"
             models_dir.mkdir(parents=True, exist_ok=True)
 
-            tag = custom_tag.strip() if custom_tag else f"sub{sub_id}_{best_key}_{len(session_ids)}ses"
+            if custom_tag.strip():
+                tag = custom_tag.strip()
+            else:
+                lis_suffix = f"_{len(listening_items)}lis" if include_listening else ""
+                tag = f"sub{sub_id}_{best_key}_{len(session_ids)}ses{lis_suffix}"
+
             model_file = models_dir / f"rhythm_model_{tag}.joblib"
             report_file = models_dir / f"rhythm_report_{tag}.json"
 
@@ -752,6 +932,8 @@ class TrainingStudioGUI:
                 'dataset_folder': ds_key,
                 'subject': sub_id,
                 'sessions': session_ids,
+                'include_listening': include_listening,
+                'listening_items': listening_items if include_listening else [],
                 'classes': ['FIRE', 'WATER', 'WIND', 'ELECTRICITY'],
                 'element_mapping': algorithms.ELEMENT_NAMES,
                 'sfreq': 250.0,
@@ -868,8 +1050,9 @@ class TrainingStudioGUI:
                 n_trials = data.get('n_trials', '?')
                 acc_str = f"{cv_acc*100:.1f}%" if cv_acc is not None else "N/A"
 
+                lis_flag = " + 🎧Listening" if data.get('include_listening') else ""
                 self.model_info_lbl.config(
-                    text=f"[Active Model] {model_path.name}  |  sub-{sub}  |  ses: {ses}  |  {alg}  |  CV Acc: {acc_str} ({n_trials} trials)"
+                    text=f"[Active Model] {model_path.name}  |  sub-{sub}  |  ses: {ses}{lis_flag}  |  {alg}  |  CV Acc: {acc_str} ({n_trials} trials)"
                 )
                 if cv_acc is not None:
                     self.card_acc.config(text=acc_str)
