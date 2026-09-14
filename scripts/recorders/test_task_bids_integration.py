@@ -12,6 +12,7 @@ if _curr_dir not in sys.path:
     sys.path.insert(0, _curr_dir)
 
 
+import pandas as pd
 from recorders.bids_recorder import BIDSRecorder
 
 
@@ -63,7 +64,7 @@ def verify_bids(out_dir, recorder, task_name, sub="99", ses="99"):
             f"(captured {n_markers} marker event(s) during recording)."
         )
 
-    import pandas as pd
+
     df = pd.read_csv(events_file, sep="\t")
     recorded_markers = df["trial_type"].tolist()
 
