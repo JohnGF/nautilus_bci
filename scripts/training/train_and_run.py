@@ -61,14 +61,124 @@ import joblib
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score, f1_score, cohen_kappa_score, confusion_matrix
 
-# Ensure script directory and tower-defense-bci directories are in sys.path
+# Ensure local directories are in sys.path
 _current_dir = Path(__file__).resolve().parent
-_ws_root = _current_dir.parent.parent.parent
-_td_python_dir = _ws_root / "tower-defense-bci" / "python"
+
+def find_tower_defense_dirs():
+    """Finds all candidate tower-defense-bci/python directories across environments."""
+    candidates = []
+
+    # 1. Environment variable override
+    for env_k in ["TOWER_DEFENSE_PYTHON_DIR", "TOWER_DEFENSE_DIR", "TD_PYTHON_DIR"]:
+        env_val = os.environ.get(env_k)
+        if env_val:
+            p = Path(env_val).resolve()
+            if (p / "main.py").exists():
+                candidates.append(p)
+            elif (p / "python" / "main.py").exists():
+                candidates.append(p / "python")
+
+    # 2. Submodule inside nautilus_bci
+    submod = _current_dir.parent.parent / "tower-defense-bci" / "python"
+    if (submod / "main.py").exists():
+        candidates.append(submod.resolve())
+
+    # 3. Sibling next to nautilus_bci
+    sibling = _current_dir.parent.parent.parent / "tower-defense-bci" / "python"
+    if (sibling / "main.py").exists():
+        candidates.append(sibling.resolve())
+
+    # 4. Working directory / relative to cwd
+    cwd = Path.cwd().resolve()
+    for c in [
+        cwd / "tower-defense-bci" / "python",
+        cwd / "python",
+        cwd.parent / "tower-defense-bci" / "python",
+    ]:
+        if (c / "main.py").exists():
+            candidates.append(c.resolve())
+
+    # 5. Search upwards from _current_dir
+    p = _current_dir.resolve()
+    while p != p.parent:
+        c1 = p / "tower-defense-bci" / "python"
+        if (c1 / "main.py").exists():
+            candidates.append(c1.resolve())
+        p = p.parent
+
+    # 6. Fallback known standard locations
+    for fixed in [
+        Path("/home/guilhermecoto/Documentos/Lasige/tower-defense-bci/python"),
+        Path("/home/guilhermecoto/Documentos/Lasige/nautilus_bci/tower-defense-bci/python"),
+        Path.home() / "Documentos" / "Lasige" / "tower-defense-bci" / "python",
+        Path.home() / "Documents" / "Lasige" / "tower-defense-bci" / "python",
+        Path(r"C:\Users\guilh\Desktop\Lasige\tower-defense-bci\python"),
+    ]:
+        if fixed.exists() and (fixed / "main.py").exists():
+            candidates.append(fixed.resolve())
+
+    unique = []
+    for c in candidates:
+        if c not in unique:
+            unique.append(c)
+    return unique
+
+
+def get_primary_tower_defense_dir():
+    """Returns the primary tower-defense-bci/python directory, prioritizing existing virtualenvs."""
+    dirs = find_tower_defense_dirs()
+    if not dirs:
+        submod = _current_dir.parent.parent / "tower-defense-bci" / "python"
+        return submod if submod.exists() else (_current_dir.parent.parent.parent / "tower-defense-bci" / "python")
+
+    for d in dirs:
+        if (d / ".venv" / "bin" / "python").exists() or (d / ".venv" / "Scripts" / "python.exe").exists():
+            return d
+    return dirs[0]
+
+
+def resolve_pipeline_python(td_dir: Path) -> Path:
+    """Finds the best python interpreter equipped to run the tower-defense pipeline."""
+    for venv_sub in [
+        td_dir / ".venv" / "bin" / "python",
+        td_dir / ".venv" / "Scripts" / "python.exe",
+    ]:
+        if venv_sub.exists():
+            return venv_sub
+
+    for other_td in find_tower_defense_dirs():
+        for venv_sub in [
+            other_td / ".venv" / "bin" / "python",
+            other_td / ".venv" / "Scripts" / "python.exe",
+        ]:
+            if venv_sub.exists():
+                return venv_sub
+
+    for root_cand in [
+        _current_dir.parent.parent / ".venv" / "bin" / "python",
+        _current_dir.parent.parent / ".venv" / "Scripts" / "python.exe",
+        _current_dir.parent / ".venv" / "bin" / "python",
+        _current_dir.parent / ".venv" / "Scripts" / "python.exe",
+        _current_dir / ".venv" / "bin" / "python",
+        _current_dir / ".venv" / "Scripts" / "python.exe",
+    ]:
+        if root_cand.exists():
+            return root_cand
+
+    if "VIRTUAL_ENV" in os.environ:
+        v_py = Path(os.environ["VIRTUAL_ENV"]) / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+        if v_py.exists():
+            return v_py
+
+    return Path(sys.executable)
+
+
+_td_python_dir = get_primary_tower_defense_dir()
 if str(_current_dir) not in sys.path:
     sys.path.insert(0, str(_current_dir))
-if str(_td_python_dir) not in sys.path and _td_python_dir.exists():
-    sys.path.insert(0, str(_td_python_dir))
+for td_d in find_tower_defense_dirs():
+    if str(td_d) not in sys.path:
+        sys.path.insert(0, str(td_d))
 
 import dataset
 import algorithms
@@ -247,14 +357,15 @@ def train_model(
     joblib.dump(export_dict, output_path)
     print(f"\n[+] Exported joblib model: {output_path}")
 
-    # Sync to tower-defense-bci models if directory exists
-    td_models = _td_python_dir / "models"
-    if td_models.exists():
-        try:
-            joblib.dump(export_dict, td_models / output_path.name)
-            print(f"[+] Synced model to tower-defense-bci/python/models/{output_path.name}")
-        except Exception as e:
-            print(f"[!] Note: Could not sync to tower-defense-bci models: {e}")
+    # Sync to all found tower-defense-bci models directories
+    for td_d in find_tower_defense_dirs():
+        td_models = td_d / "models"
+        if td_models.exists():
+            try:
+                joblib.dump(export_dict, td_models / output_path.name)
+                print(f"[+] Synced model to {td_d.parent.name}/python/models/{output_path.name}")
+            except Exception as e:
+                print(f"[!] Note: Could not sync to {td_models}: {e}")
 
     with open(report_path, 'w', encoding='utf-8') as f:
         json.dump(export_dict, f, indent=2, default=str)
@@ -274,18 +385,36 @@ def launch_pipeline(
     interactive=False
 ):
     """Launches tower-defense-bci/python/main.py with the specified model."""
-    main_py = _td_python_dir / "main.py"
+    td_dir = get_primary_tower_defense_dir()
+    main_py = td_dir / "main.py"
     if not main_py.exists():
-        raise FileNotFoundError(f"Could not locate main.py at {main_py}")
+        for cand in find_tower_defense_dirs():
+            if (cand / "main.py").exists():
+                td_dir = cand
+                main_py = cand / "main.py"
+                break
+
+    if not main_py.exists():
+        raise FileNotFoundError(
+            f"Could not locate main.py at {main_py}. Checked candidates: {find_tower_defense_dirs()}"
+        )
 
     print("\n" + "=" * 80)
     print(" INITIATING REAL-TIME BCI PIPELINE (GODOT BRIDGE) ".center(80, "="))
+    print(f"[*] Tower Defense Dir : {td_dir}")
+    print(f"[*] Script Path       : {main_py}")
+    print(f"[*] Active Model      : {Path(model_path).name}")
     print("=" * 80)
 
-    # Ensure current directory is in sys.path and PYTHONPATH for unpickling custom classifiers
+    # Ensure current directory and td_dir are in sys.path and PYTHONPATH for unpickling custom classifiers
     if str(_current_dir) not in sys.path:
         sys.path.insert(0, str(_current_dir))
-    os.environ["PYTHONPATH"] = str(_current_dir) + os.pathsep + os.environ.get("PYTHONPATH", "")
+    if str(td_dir) not in sys.path:
+        sys.path.insert(0, str(td_dir))
+    os.environ["PYTHONPATH"] = str(_current_dir) + os.pathsep + str(td_dir) + os.pathsep + os.environ.get("PYTHONPATH", "")
+
+    # Resolve python interpreter
+    venv_py = resolve_pipeline_python(td_dir)
 
     # Import and run directly in-process or via pipeline
     try:
@@ -303,9 +432,6 @@ def launch_pipeline(
     except Exception as e:
         print(f"[*] Starting pipeline in subprocess due to: {e}")
         import subprocess
-        venv_py = _td_python_dir / ".venv" / "Scripts" / "python.exe"
-        if not venv_py.exists():
-            venv_py = sys.executable
         cmd = [
             str(venv_py), str(main_py),
             "--source", source,
@@ -321,8 +447,8 @@ def launch_pipeline(
             cmd.append("--interactive")
 
         run_env = os.environ.copy()
-        run_env["PYTHONPATH"] = str(_current_dir) + os.pathsep + run_env.get("PYTHONPATH", "")
-        subprocess.run(cmd, cwd=str(_td_python_dir), env=run_env)
+        run_env["PYTHONPATH"] = str(_current_dir) + os.pathsep + str(td_dir) + os.pathsep + run_env.get("PYTHONPATH", "")
+        subprocess.run(cmd, cwd=str(td_dir), env=run_env)
 
 
 def main():

@@ -56,14 +56,158 @@ import joblib
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score, f1_score, cohen_kappa_score, confusion_matrix
 
+import shutil
+import signal
+
 # Ensure local directories are in sys.path
 _current_dir = Path(__file__).resolve().parent
-_ws_root = _current_dir.parent.parent.parent
-_td_python_dir = _ws_root / "tower-defense-bci" / "python"
+
+def find_tower_defense_dirs():
+    """Finds all candidate tower-defense-bci/python directories across environments."""
+    candidates = []
+
+    # 1. Check environment variable override
+    for env_k in ["TOWER_DEFENSE_PYTHON_DIR", "TOWER_DEFENSE_DIR", "TD_PYTHON_DIR"]:
+        env_val = os.environ.get(env_k)
+        if env_val:
+            p = Path(env_val).resolve()
+            if (p / "main.py").exists():
+                candidates.append(p)
+            elif (p / "python" / "main.py").exists():
+                candidates.append(p / "python")
+
+    # 2. Submodule inside nautilus_bci (e.g. nautilus_bci/tower-defense-bci/python)
+    submod = _current_dir.parent.parent / "tower-defense-bci" / "python"
+    if (submod / "main.py").exists():
+        candidates.append(submod.resolve())
+
+    # 3. Sibling next to nautilus_bci (e.g. Lasige/tower-defense-bci/python)
+    sibling = _current_dir.parent.parent.parent / "tower-defense-bci" / "python"
+    if (sibling / "main.py").exists():
+        candidates.append(sibling.resolve())
+
+    # 4. Working directory / relative to cwd
+    cwd = Path.cwd().resolve()
+    for c in [
+        cwd / "tower-defense-bci" / "python",
+        cwd / "python",
+        cwd.parent / "tower-defense-bci" / "python",
+    ]:
+        if (c / "main.py").exists():
+            candidates.append(c.resolve())
+
+    # 5. Search upwards from _current_dir
+    p = _current_dir.resolve()
+    while p != p.parent:
+        c1 = p / "tower-defense-bci" / "python"
+        if (c1 / "main.py").exists():
+            candidates.append(c1.resolve())
+        p = p.parent
+
+    # 6. Fallback known standard locations
+    for fixed in [
+        Path("/home/guilhermecoto/Documentos/Lasige/tower-defense-bci/python"),
+        Path("/home/guilhermecoto/Documentos/Lasige/nautilus_bci/tower-defense-bci/python"),
+        Path.home() / "Documentos" / "Lasige" / "tower-defense-bci" / "python",
+        Path.home() / "Documents" / "Lasige" / "tower-defense-bci" / "python",
+        Path(r"C:\Users\guilh\Desktop\Lasige\tower-defense-bci\python"),
+    ]:
+        if fixed.exists() and (fixed / "main.py").exists():
+            candidates.append(fixed.resolve())
+
+    # Deduplicate while preserving order
+    unique = []
+    for c in candidates:
+        if c not in unique:
+            unique.append(c)
+    return unique
+
+
+def get_primary_tower_defense_dir():
+    """Returns the primary tower-defense-bci/python directory, prioritizing existing virtualenvs."""
+    dirs = find_tower_defense_dirs()
+    if not dirs:
+        submod = _current_dir.parent.parent / "tower-defense-bci" / "python"
+        return submod if submod.exists() else (_current_dir.parent.parent.parent / "tower-defense-bci" / "python")
+
+    for d in dirs:
+        if (d / ".venv" / "bin" / "python").exists() or (d / ".venv" / "Scripts" / "python.exe").exists():
+            return d
+    return dirs[0]
+
+
+def resolve_pipeline_python(td_dir: Path) -> Path:
+    """Finds the best python interpreter equipped to run the tower-defense pipeline."""
+    # 1. Look in td_dir's own .venv (Linux bin/python, Windows Scripts/python.exe)
+    for venv_sub in [
+        td_dir / ".venv" / "bin" / "python",
+        td_dir / ".venv" / "Scripts" / "python.exe",
+    ]:
+        if venv_sub.exists():
+            return venv_sub
+
+    # 2. Look in any other found tower_defense directory's .venv
+    for other_td in find_tower_defense_dirs():
+        for venv_sub in [
+            other_td / ".venv" / "bin" / "python",
+            other_td / ".venv" / "Scripts" / "python.exe",
+        ]:
+            if venv_sub.exists():
+                return venv_sub
+
+    # 3. Look in nautilus_bci root .venv or scripts .venv
+    for root_cand in [
+        _current_dir.parent.parent / ".venv" / "bin" / "python",
+        _current_dir.parent.parent / ".venv" / "Scripts" / "python.exe",
+        _current_dir.parent / ".venv" / "bin" / "python",
+        _current_dir.parent / ".venv" / "Scripts" / "python.exe",
+        _current_dir / ".venv" / "bin" / "python",
+        _current_dir / ".venv" / "Scripts" / "python.exe",
+    ]:
+        if root_cand.exists():
+            return root_cand
+
+    # 4. Check active virtual environment
+    if "VIRTUAL_ENV" in os.environ:
+        v_py = Path(os.environ["VIRTUAL_ENV"]) / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+        if v_py.exists():
+            return v_py
+
+    return Path(sys.executable)
+
+
+def find_terminal_command(workdir: Path, cmd: list) -> tuple:
+    """
+    Returns (terminal_name, full_launch_cmd) if a suitable terminal emulator is found,
+    or (None, cmd) if we should run directly.
+    """
+    if sys.platform == "win32":
+        return ("windows_console", cmd)
+
+    term_configs = [
+        ("konsole", lambda wd, c: ["konsole", "--workdir", str(wd), "--noclose", "-e"] + c),
+        ("gnome-terminal", lambda wd, c: ["gnome-terminal", f"--working-directory={wd}", "--"] + c),
+        ("xfce4-terminal", lambda wd, c: ["xfce4-terminal", f"--working-directory={wd}", "-H", "-e", " ".join(c)]),
+        ("alacritty", lambda wd, c: ["alacritty", "--working-directory", str(wd), "--hold", "-e"] + c),
+        ("kitty", lambda wd, c: ["kitty", "--directory", str(wd), "--hold"] + c),
+        ("xterm", lambda wd, c: ["xterm", "-hold", "-e"] + c),
+        ("terminator", lambda wd, c: ["terminator", f"--working-directory={wd}", "-x"] + c),
+        ("lxterminal", lambda wd, c: ["lxterminal", f"--working-directory={wd}", "-e", " ".join(c)]),
+    ]
+
+    for term_bin, build_fn in term_configs:
+        if shutil.which(term_bin):
+            return (term_bin, build_fn(workdir, cmd))
+
+    return (None, cmd)
+
+
+_td_python_dir = get_primary_tower_defense_dir()
 if str(_current_dir) not in sys.path:
     sys.path.insert(0, str(_current_dir))
-if str(_td_python_dir) not in sys.path and _td_python_dir.exists():
-    sys.path.insert(0, str(_td_python_dir))
+for td_d in find_tower_defense_dirs():
+    if str(td_d) not in sys.path:
+        sys.path.insert(0, str(td_d))
 
 import dataset
 import algorithms
@@ -953,13 +1097,14 @@ class TrainingStudioGUI:
             self._log(f"[+] Exported joblib artifact: {model_file}")
 
             # Also copy or link to tower-defense-bci/python/models if available
-            td_models = _td_python_dir / "models"
-            if td_models.exists():
-                try:
-                    joblib.dump(export_dict, td_models / model_file.name)
-                    self._log(f"[+] Synced to tower-defense-bci: {td_models / model_file.name}")
-                except Exception as e:
-                    self._log(f"[!] Note: Could not sync to tower-defense-bci models: {e}")
+            for td_d in find_tower_defense_dirs():
+                td_models = td_d / "models"
+                if td_models.exists():
+                    try:
+                        joblib.dump(export_dict, td_models / model_file.name)
+                        self._log(f"[+] Synced to {td_d.parent.name}: {td_models / model_file.name}")
+                    except Exception as e:
+                        self._log(f"[!] Note: Could not sync to {td_models}: {e}")
 
             with open(report_file, 'w', encoding='utf-8') as f:
                 json.dump(export_dict, f, indent=2, default=str)
@@ -1003,10 +1148,11 @@ class TrainingStudioGUI:
 
     def _refresh_available_models(self):
         self.available_models.clear()
-        search_dirs = [
-            _current_dir / "models",
-            _td_python_dir / "models"
-        ]
+        search_dirs = [_current_dir / "models"]
+        for td_d in find_tower_defense_dirs():
+            td_m = td_d / "models"
+            if td_m not in search_dirs:
+                search_dirs.append(td_m)
 
         found = []
         for sdir in search_dirs:
@@ -1127,11 +1273,13 @@ class TrainingStudioGUI:
             if candidates:
                 model_path = candidates[-1]
             else:
-                td_models = _td_python_dir / "models"
-                td_cands = list(td_models.glob("*.joblib")) if td_models.exists() else []
-                if td_cands:
-                    model_path = td_cands[0]
-                else:
+                for td_d in find_tower_defense_dirs():
+                    td_models = td_d / "models"
+                    td_cands = list(td_models.glob("*.joblib")) if td_models.exists() else []
+                    if td_cands:
+                        model_path = td_cands[0]
+                        break
+                if not model_path:
                     messagebox.showwarning("No Model Found", "Please select or train a model first before launching the real-time pipeline.")
                     return
 
@@ -1145,15 +1293,37 @@ class TrainingStudioGUI:
         threshold = str(self.rt_threshold.get())
         auto_send_flag = "--auto-send" if self.rt_autosend.get() else "--no-auto-send"
 
-        # Python interpreter in tower-defense-bci venv
-        venv_py = _td_python_dir / ".venv" / "Scripts" / "python.exe"
-        if not venv_py.exists():
-            venv_py = Path(sys.executable)
-
-        main_py = _td_python_dir / "main.py"
+        # Resolve tower-defense-bci directory and main.py
+        td_dir = get_primary_tower_defense_dir()
+        main_py = td_dir / "main.py"
         if not main_py.exists():
-            messagebox.showerror("Pipeline Script Missing", f"Could not locate main.py at {main_py}")
-            return
+            for cand in find_tower_defense_dirs():
+                if (cand / "main.py").exists():
+                    td_dir = cand
+                    main_py = cand / "main.py"
+                    break
+
+        if not main_py.exists():
+            chosen = filedialog.askopenfilename(
+                title="Localizar main.py do Tower Defense",
+                initialdir=str(_current_dir.parent.parent),
+                filetypes=[("Python Script", "main.py"), ("Todos os ficheiros", "*.*")]
+            )
+            if chosen and Path(chosen).exists():
+                main_py = Path(chosen).resolve()
+                td_dir = main_py.parent
+            else:
+                searched_str = "\n".join(f"  • {p}" for p in find_tower_defense_dirs())
+                messagebox.showerror(
+                    "Pipeline Script Missing",
+                    f"Não foi possível encontrar o ficheiro main.py do Tower Defense.\n\n"
+                    f"Pastas pesquisadas:\n{searched_str}\n\n"
+                    f"Por favor verifica se o repositório tower-defense-bci está presente."
+                )
+                return
+
+        # Python interpreter in virtual environment
+        venv_py = resolve_pipeline_python(td_dir)
 
         cmd = [
             str(venv_py),
@@ -1171,37 +1341,78 @@ class TrainingStudioGUI:
             cmd.append("--interactive")
 
         self._log("\n" + "=" * 72)
-        self._log(f"[*] LAUNCHING REAL-TIME BCI PIPELINE IN SEPARATE TERMINAL...")
-        self._log(f"    Command: {' '.join(cmd)}")
+        self._log(f"[*] INICIANDO REAL-TIME BCI PIPELINE...")
+        self._log(f"    Directoria : {td_dir}")
+        self._log(f"    Script     : {main_py.name}")
+        self._log(f"    Python     : {venv_py}")
+        self._log(f"    Modelo     : {Path(model_path).name}")
+        self._log(f"    Comando    : {' '.join(cmd)}")
         self._log("=" * 72)
 
         try:
             # Set PYTHONPATH so that tower-defense-bci unpickles custom algorithms cleanly
             run_env = os.environ.copy()
-            run_env["PYTHONPATH"] = str(_current_dir) + os.pathsep + run_env.get("PYTHONPATH", "")
+            run_env["PYTHONPATH"] = str(_current_dir) + os.pathsep + str(td_dir) + os.pathsep + run_env.get("PYTHONPATH", "")
 
-            # Launch in new console window on Windows so it doesn't block GUI and allows keyboard controls
-            creationflags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
-            self.realtime_process = subprocess.Popen(
-                cmd,
-                cwd=str(_td_python_dir),
-                env=run_env,
-                creationflags=creationflags
-            )
+            term_name, launch_cmd = find_terminal_command(td_dir, cmd)
+
+            if sys.platform == "win32":
+                self.realtime_process = subprocess.Popen(
+                    cmd,
+                    cwd=str(td_dir),
+                    env=run_env,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE
+                )
+                self._log(f"[+] Pipeline iniciado numa nova consola Windows (PID {self.realtime_process.pid}).")
+            elif term_name:
+                self._log(f"[*] A abrir consola interactiva no terminal [{term_name}]...")
+                self.realtime_process = subprocess.Popen(
+                    launch_cmd,
+                    cwd=str(td_dir),
+                    env=run_env,
+                    preexec_fn=os.setsid
+                )
+                self._log(f"[+] Pipeline iniciado no {term_name} (PID {self.realtime_process.pid}).")
+            else:
+                self._log(f"[*] Nenhum emulador de terminal encontrado. A canalizar saída para o log da Studio...")
+                self.realtime_process = subprocess.Popen(
+                    cmd,
+                    cwd=str(td_dir),
+                    env=run_env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    preexec_fn=os.setsid
+                )
+                def _stream_output(proc):
+                    for line in iter(proc.stdout.readline, ''):
+                        if line:
+                            self._log(f"[RT] {line.rstrip()}")
+                threading.Thread(target=_stream_output, args=(self.realtime_process,), daemon=True).start()
+                self._log(f"[+] Pipeline iniciado em background (PID {self.realtime_process.pid}).")
+
             self.launch_rt_btn.config(state="disabled")
             self.stop_rt_btn.config(state="normal")
-            self._log(f"[+] Pipeline started (PID {self.realtime_process.pid}). Live console opened.")
         except Exception as e:
-            self._log(f"[ERROR] Failed to start pipeline: {e}")
+            self._log(f"[ERROR] Falha ao iniciar pipeline: {e}")
             messagebox.showerror("Pipeline Launch Error", str(e))
 
     def _stop_realtime_pipeline(self):
         if self.realtime_process:
             try:
-                self.realtime_process.terminate()
-                self._log("[*] Real-Time Pipeline stopped.")
+                if sys.platform == "win32":
+                    self.realtime_process.terminate()
+                else:
+                    try:
+                        os.killpg(os.getpgid(self.realtime_process.pid), signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    except Exception:
+                        self.realtime_process.terminate()
+                self._log("[*] Real-Time Pipeline terminado.")
             except Exception as e:
-                self._log(f"[!] Warning stopping pipeline: {e}")
+                self._log(f"[!] Aviso ao parar pipeline: {e}")
             self.realtime_process = None
 
         self.launch_rt_btn.config(state="normal")
