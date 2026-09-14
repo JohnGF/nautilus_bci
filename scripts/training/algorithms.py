@@ -63,7 +63,7 @@ def compute_ovr_csp(X, y, n_components=4):
     """
     n_epochs, n_ch, _ = X.shape
     classes = np.unique(y)
-    covs = [np.cov(X[i]) / (np.trace(np.cov(X[i])) + 1e-12) for i in range(n_epochs)]
+    covs = [np.cov(X[i]) for i in range(n_epochs)]
 
     if len(classes) == 2:
         c1, c2 = classes[0], classes[1]
@@ -101,12 +101,11 @@ def project_csp_features(X, W):
 
 
 def compute_covariance_matrices(X):
-    """Computes regularized trace-normalized covariance matrices."""
+    """Computes regularized covariance matrices without trace normalization to prevent baseline noise explosion."""
     n_epochs, n_ch, _ = X.shape
     covs = np.zeros((n_epochs, n_ch, n_ch), dtype=np.float64)
     for i in range(n_epochs):
         c = np.cov(X[i])
-        c = c / (np.trace(c) + 1e-12)
         c += 1e-5 * np.eye(n_ch)
         covs[i] = c
     return covs
@@ -282,8 +281,19 @@ class FilterBank_CSP_LogReg(BaseEstimator, ClassifierMixin):
         self.classifier_ = None
         self.classes_ = None
 
-    def _filter_epoch(self, epoch, b, a):
-        return signal.filtfilt(b, a, epoch, axis=-1)
+    def _filter_epoch(self, epoch, b, a, band_idx=None):
+        if band_idx is not None:
+            # We are during transform (online inference), use state tracking if configured.
+            if not hasattr(self, 'zi_bands_'):
+                self.zi_bands_ = {}
+            if band_idx not in self.zi_bands_ or self.zi_bands_[band_idx].shape[0] != epoch.shape[0]:
+                self.zi_bands_[band_idx] = signal.lfilter_zi(b, a)
+                self.zi_bands_[band_idx] = np.repeat(self.zi_bands_[band_idx][:, np.newaxis], epoch.shape[0], axis=1)
+            filtered, self.zi_bands_[band_idx] = signal.lfilter(b, a, epoch, axis=-1, zi=self.zi_bands_[band_idx])
+            return filtered
+        else:
+            # Offline training, still use lfilter to match phase response of online lfilter
+            return signal.lfilter(b, a, epoch, axis=-1)
 
     def fit(self, X, y):
         X = _ensure_3d(X)
@@ -310,9 +320,9 @@ class FilterBank_CSP_LogReg(BaseEstimator, ClassifierMixin):
     def transform(self, X):
         X = _ensure_3d(X)
         band_feats = []
-        for filt_info in self.filters_:
+        for idx, filt_info in enumerate(self.filters_):
             b, a, W = filt_info['b'], filt_info['a'], filt_info['W']
-            X_filt = np.array([self._filter_epoch(X[i], b, a) for i in range(len(X))])
+            X_filt = np.array([self._filter_epoch(X[i], b, a, band_idx=idx) for i in range(len(X))])
             feats = project_csp_features(X_filt, W)
             band_feats.append(feats)
         all_feats = np.hstack(band_feats)
