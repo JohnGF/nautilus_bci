@@ -1,0 +1,55 @@
+{
+  "model": "Pipeline(steps=[('csp', CSP(log=True, reg='oas')),\n                ('rf', RandomForestClassifier(random_state=42))])",
+  "model_name": "CSP + RANDOM FOREST_FNF",
+  "algorithm_name": "CSP + Random Forest",
+  "subject": "01",
+  "sessions": [
+    "01",
+    "02",
+    "03",
+    "04",
+    "05",
+    "06",
+    "07"
+  ],
+  "classes": [
+    "Left",
+    "Right",
+    "Up",
+    "Down",
+    "Rest"
+  ],
+  "n_trials": 1298,
+  "metrics": {
+    "cv_accuracy_mean": 0.8004633204633205,
+    "cv_accuracy_std": 0.02025310639513918,
+    "cv_f1_macro": 0.5948455028421116,
+    "self_accuracy": 1.0
+  },
+  "confusion_matrix": [
+    [
+      827,
+      6,
+      4,
+      2
+    ],
+    [
+      9,
+      76,
+      24,
+      44
+    ],
+    [
+      11,
+      31,
+      74,
+      37
+    ],
+    [
+      5,
+      43,
+      43,
+      62
+    ]
+  ]
+}
