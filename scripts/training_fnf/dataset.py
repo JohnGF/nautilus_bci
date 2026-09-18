@@ -57,8 +57,21 @@ def load_dataset_sessions(sub_id, session_ids, progress_callback=None):
             progress_callback(f"Loading session {ses_clean} ({idx + 1}/{total_ses})...", (idx / total_ses) * 0.8)
             
         try:
+            # Auto-detect task name from files
+            eeg_dir = bids_dir / f"sub-{sub_id}" / f"ses-{ses_clean}" / "eeg"
+            task_name = "leftright"
+            if eeg_dir.exists():
+                for f in os.listdir(eeg_dir):
+                    if f.endswith("_eeg.vhdr"):
+                        parts = f.split('_')
+                        for p in parts:
+                            if p.startswith('task-'):
+                                task_name = p.replace('task-', '')
+                                break
+                        break
+
             # Using load_fnf_session from analyze_fnf_bci.py
-            s_data = load_fnf_session(str(bids_dir), sub=sub_id, ses=ses_clean)
+            s_data = load_fnf_session(str(bids_dir), sub=sub_id, ses=ses_clean, task=task_name)
             
             # Load directional epochs
             for direction in s_data['available_directions']:
