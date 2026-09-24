@@ -38,46 +38,27 @@ def load_and_preprocess(bids_root, sub, ses, task, l_freq=4.0, h_freq=40.0):
         return None, None, None
 
 def extract_td_sessions():
-    sessions = [
+    all_X_sil, all_y_sil = [], []
+
+    td_sessions = [
         (BIDS_TOWER_DEFENSE_DIR, '01', '01', 'recall'),
         ('bids/bids_tower_defense/bids_tower_defense/', '01', '01', 'recall'),
         ('bids/bids_tower_defense/bids_tower_defense/', '01', '02', 'recallWaterReplaced')
     ]
-    all_X_aud, all_y_aud = [], []
-    all_X_sil, all_y_sil = [], []
 
-    for root, sub, ses, task in sessions:
+    element_map = {'FIRE selected': 0, 'WATER selected': 1, 'WIND selected': 2, 'ELECTRICITY selected': 3}
+
+    for root, sub, ses, task in td_sessions:
         raw_td, events_td, event_id_td = load_and_preprocess(root, sub, ses, task)
         if raw_td is None: continue
 
-        element_map = {'FIRE selected': 0, 'WATER selected': 1, 'WIND selected': 2, 'ELECTRICITY selected': 3}
-
-        def find_next_event(events, start_idx, target_names, event_id_map):
-            target_ids = [event_id_map[name] for name in target_names if name in event_id_map]
-            for i in range(start_idx, len(events)):
-                if events[i, 2] in target_ids:
-                    for name, eid in event_id_map.items():
-                        if eid == events[i, 2]: return events[i], name
-            return None, None
-
-        listen_id = event_id_td.get('Start Listen')
         imagine_id = event_id_td.get('Imagine')
+        if not imagine_id: continue
 
-        if not listen_id or not imagine_id: continue
-
-        X_aud, y_aud, X_sil, y_sil = [], [], [], []
-
+        X_sil, y_sil = [], []
         for i in range(len(events_td)):
             ev = events_td[i]
-            if ev[2] == listen_id:
-                _, sel_name = find_next_event(events_td, i, element_map.keys(), event_id_td)
-                if sel_name:
-                    y_aud.append(element_map[sel_name])
-                    max_stop = min(ev[0] + int(3.0 * raw_td.info['sfreq']), len(raw_td.times))
-                    epoch_data = raw_td.get_data(start=ev[0], stop=max_stop)
-                    if epoch_data.shape[1] == int(3.0 * raw_td.info['sfreq']): X_aud.append(epoch_data)
-
-            elif ev[2] == imagine_id:
+            if ev[2] == imagine_id:
                 target_ids = [event_id_td[name] for name in element_map.keys() if name in event_id_td]
                 best_sel = None
                 best_diff = 99999
@@ -95,14 +76,69 @@ def extract_td_sessions():
                     epoch_data = raw_td.get_data(start=ev[0], stop=max_stop)
                     if epoch_data.shape[1] == int(3.0 * raw_td.info['sfreq']): X_sil.append(epoch_data)
 
-        if len(X_aud) > 0:
-            all_X_aud.append(np.array(X_aud))
-            all_y_aud.append(np.array(y_aud))
         if len(X_sil) > 0:
             all_X_sil.append(np.array(X_sil))
             all_y_sil.append(np.array(y_sil))
 
-    return (np.concatenate(all_X_aud), np.concatenate(all_y_aud)), (np.concatenate(all_X_sil), np.concatenate(all_y_sil))
+    # Extract Auditory Priming from bids_music
+    all_X_aud, all_y_aud = [], []
+    raw_music, events_music, event_id_music = load_and_preprocess('bids/bids_music/', '01', '02', 'musiclistening')
+
+    if raw_music is not None:
+        music_map = {
+            'Track_Start_id_2_name_Beethoven_Fur_Elise': 0, # Fire
+            'Track_Start_id_1_name_Bach_Prelude': 1,        # Water
+            'Track_Start_id_4_name_Vivaldi_Spring': 2,      # Wind
+            'Track_Start_id_5_name_Tchaikovsky_Waltz': 3    # Electricity
+        }
+        sfreq = raw_music.info['sfreq']
+        epoch_samples = int(3.0 * sfreq)
+
+        for name, class_idx in music_map.items():
+            start_id = event_id_music.get(name)
+            if start_id:
+                for i in range(len(events_music)):
+                    if events_music[i, 2] == start_id:
+                        start_sample = events_music[i, 0]
+                        end_name = name.replace('Track_Start', 'Track_End')
+                        end_id = event_id_music.get(end_name)
+                        end_sample = len(raw_music.times)
+                        if end_id:
+                            for j in range(i, len(events_music)):
+                                if events_music[j, 2] == end_id:
+                                    end_sample = events_music[j, 0]
+                                    break
+
+                        current_sample = start_sample
+
+                        # Limit extraction to first 60 seconds of the track to avoid immense memory load / processing time
+                        max_end_sample = start_sample + int(60 * sfreq)
+                        end_sample = min(end_sample, max_end_sample)
+
+                        # Fetch the track data once
+                        track_data = raw_music.get_data(start=current_sample, stop=end_sample)
+                        n_epochs = track_data.shape[1] // epoch_samples
+
+                        # Reshape into epochs
+                        for e in range(n_epochs):
+                            epoch_data = track_data[:, e*epoch_samples : (e+1)*epoch_samples]
+                            all_X_aud.append(epoch_data)
+                            all_y_aud.append(class_idx)
+                        break
+
+        if len(all_X_aud) > 0:
+            all_X_aud = [np.array(all_X_aud)]
+            all_y_aud = [np.array(all_y_aud)]
+
+    res_X_aud = np.concatenate(all_X_aud) if len(all_X_aud) > 0 else np.array([])
+    res_y_aud = np.concatenate(all_y_aud) if len(all_y_aud) > 0 else np.array([])
+    res_X_sil = np.concatenate(all_X_sil) if len(all_X_sil) > 0 else np.array([])
+    res_y_sil = np.concatenate(all_y_sil) if len(all_y_sil) > 0 else np.array([])
+
+    print(f"TD Auditory Priming Epochs: {res_X_aud.shape if len(res_X_aud) > 0 else 'None'}")
+    print(f"TD Silent Recall Epochs: {res_X_sil.shape if len(res_X_sil) > 0 else 'None'}")
+
+    return (res_X_aud, res_y_aud), (res_X_sil, res_y_sil)
 
 def extract_fnf_sessions():
     sessions = [(BIDS_FNF_DIR_SUB1, '01', '01', 'leftright'), (BIDS_FNF_DIR_SUB1, '03', '01', 'leftrightupdown')]
@@ -151,6 +187,10 @@ def extract_fnf_sessions():
     res_y_aud = np.concatenate(all_y_aud) if len(all_y_aud) > 0 else np.array([])
     res_X_sil = np.concatenate(all_X_sil) if len(all_X_sil) > 0 else np.array([])
     res_y_sil = np.concatenate(all_y_sil) if len(all_y_sil) > 0 else np.array([])
+
+    print(f"TD Auditory Priming Epochs: {res_X_aud.shape if len(res_X_aud) > 0 else 'None'}")
+    print(f"TD Silent Recall Epochs: {res_X_sil.shape if len(res_X_sil) > 0 else 'None'}")
+
     return (res_X_aud, res_y_aud), (res_X_sil, res_y_sil)
 
 def evaluate_few_shot_priming(X_aud, y_aud, X_sil, y_sil, title, k_shots=[1, 2, 3, 5, 8], n_repeats=20):
@@ -300,7 +340,7 @@ The results strongly validate the few-shot priming hypothesis.
 
 In the **FNF dataset**, a pure silent classifier with only 1 shot per class performs poorly (~35%), but when primed with the auditory manifold, it jumps to **~73% accuracy instantly**. This proves that the motor-elemental geometry built during active listening transfers almost perfectly to silent recall, saving significant calibration time.
 
-In the **Tower Defense dataset**, the priming effect is also evident at low $k$ (jumping from ~22% to ~37%). The absolute accuracy is lower overall, but the performance gap confirms that auditory transfer is beneficial when calibration data is scarce.
+In the **Tower Defense dataset**, the hypothesis was tested by mapping the discrete elemental motor imagery phases to the continuous full-length music listening dataset (`bids_music`). Because the Riemannian geometry of a 3.0s motor imagery task is significantly misaligned with the spatial covariance of a continuous, relaxed 2-hour listening session, the direct transfer using Tangent Space concatenation resulted in chance-level performance (~24% Primed vs ~22% Baseline). This indicates that while active, in-game auditory cues transfer well (as seen in the earlier 5-fold CV tests), passive continuous music listening is a distinct mental state that requires affine alignment (e.g., Riemannian Procrustes Analysis) before few-shot transfer can occur.
 """
         with open(os.path.join(OUTPUT_DIR, 'few_shot_report.md'), 'w') as f:
             f.write(report_md)

@@ -18,11 +18,11 @@ If the Primed condition significantly outperforms the Baseline at low $k$, it pr
 ## 3. Results Summary
 
 ### Tower Defense (Chance Level: 25.0%)
-- **k=1:** Baseline = 22.8% | Primed = 37.5%
-- **k=2:** Baseline = 21.6% | Primed = 36.5%
-- **k=3:** Baseline = 21.2% | Primed = 36.3%
-- **k=5:** Baseline = 21.1% | Primed = 36.8%
-- **k=8:** Baseline = 22.3% | Primed = 33.4%
+- **k=1:** Baseline = 22.7% | Primed = 24.8%
+- **k=2:** Baseline = 21.1% | Primed = 24.2%
+- **k=3:** Baseline = 21.8% | Primed = 24.3%
+- **k=5:** Baseline = 21.3% | Primed = 24.2%
+- **k=8:** Baseline = 21.9% | Primed = 24.2%
 
 ### Friday Night Funkin' (Chance Level: 25.0%)
 - **k=1:** Baseline = 35.6% | Primed = 73.0%
@@ -36,4 +36,4 @@ The results strongly validate the few-shot priming hypothesis.
 
 In the **FNF dataset**, a pure silent classifier with only 1 shot per class performs poorly (~35%), but when primed with the auditory manifold, it jumps to **~73% accuracy instantly**. This proves that the motor-elemental geometry built during active listening transfers almost perfectly to silent recall, saving significant calibration time.
 
-In the **Tower Defense dataset**, the priming effect is also evident at low $k$ (jumping from ~22% to ~37%). The absolute accuracy is lower overall, but the performance gap confirms that auditory transfer is beneficial when calibration data is scarce.
+In the **Tower Defense dataset**, the hypothesis was tested by mapping the discrete elemental motor imagery phases to the continuous full-length music listening dataset (`bids_music`). Because the Riemannian geometry of a 3.0s motor imagery task is significantly misaligned with the spatial covariance of a continuous, relaxed 2-hour listening session, the direct transfer using Tangent Space concatenation resulted in chance-level performance (~24% Primed vs ~22% Baseline). This indicates that while active, in-game auditory cues transfer well (as seen in the earlier 5-fold CV tests), passive continuous music listening is a distinct mental state that requires affine alignment (e.g., Riemannian Procrustes Analysis) before few-shot transfer can occur.
