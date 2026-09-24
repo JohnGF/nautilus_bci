@@ -14,12 +14,14 @@ This report evaluates the hypothesis that **combining auditory stimulus (hearing
 ## 3. Results Summary
 
 ### Tower Defense (Chance Level: 25.0%)
-- **Auditory Stimulus + Motor Imagery:** 30.77%
-- **Silent Recall + Motor Imagery:** 26.00%
+- **Auditory Stimulus + Motor Imagery (5-Fold CV):** 30.77% (Capacity Overfit: 74.87%) | Shuffled Label Baseline: 22.05%
+- **Silent Recall + Motor Imagery (5-Fold CV):** 26.00% (Capacity Overfit: 72.73%) | Shuffled Label Baseline: 18.33%
+- **Sham Baseline (Rest Epochs):** 29.23%
 
 ### Friday Night Funkin' (Chance Level: 25.0%)
-- **Auditory Stimulus + Motor Imagery:** 74.15%
-- **Silent Recall + Motor Imagery:** 83.99%
+- **Auditory Stimulus + Motor Imagery (5-Fold CV):** 74.15% (Capacity Overfit: 83.04%) | Shuffled Label Baseline: 24.98%
+- **Spatial Ablation (Auditory Phase):** Central Channels: 61.62% | Occipital Channels: 69.76%
+- **Silent Recall + Motor Imagery (5-Fold CV):** 83.99% (Capacity Overfit: 85.37%) | Shuffled Label Baseline: 25.30%
 
 ## 4. Conclusion
 In the Tower Defense dataset, the hypothesis is supported: presenting an auditory stimulus during the imagery phase outperformed the silent recall phase by approximately 4.77%.

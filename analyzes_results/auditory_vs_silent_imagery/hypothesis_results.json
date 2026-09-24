@@ -1,10 +1,21 @@
 {
     "Tower Defense": {
-        "Auditory + Motor Imagery Accuracy": 0.30769230769230765,
-        "Silent Recall + Motor Imagery Accuracy": 0.25999999999999995
+        "Auditory + Motor Imagery Accuracy (5-Fold CV)": 0.30769230769230765,
+        "Auditory + Motor Imagery Capacity (Train on all)": 0.7487179487179487,
+        "Auditory + Motor Imagery Permutation Shuffled": 0.22051282051282053,
+        "Silent Recall + Motor Imagery Accuracy (5-Fold CV)": 0.25999999999999995,
+        "Silent Recall + Motor Imagery Capacity (Train on all)": 0.7272727272727273,
+        "Rest Baseline Accuracy (Sham)": 0.29230769230769227,
+        "Silent Recall + Motor Imagery Permutation Shuffled": 0.1833333333333333
     },
     "FNF": {
-        "Auditory + Motor Imagery Accuracy": 0.7415019762845849,
-        "Silent Recall + Motor Imagery Accuracy": 0.8398681471200555
+        "Auditory + Motor Imagery Accuracy (5-Fold CV)": 0.7415019762845849,
+        "Auditory + Motor Imagery Capacity (Train on all)": 0.8303571428571429,
+        "Auditory + Motor Imagery Permutation Shuffled": 0.24980237154150195,
+        "Auditory + Motor Imagery (Central Channels Only)": 0.6162055335968379,
+        "Auditory + Motor Imagery (Occipital Channels Only)": 0.6976284584980237,
+        "Silent Recall + Motor Imagery Accuracy (5-Fold CV)": 0.8398681471200555,
+        "Silent Recall + Motor Imagery Capacity (Train on all)": 0.8536585365853658,
+        "Silent Recall + Motor Imagery Permutation Shuffled": 0.25304186907240345
     }
 }

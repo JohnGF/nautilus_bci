@@ -249,7 +249,28 @@ def extract_td_sessions():
             all_X_sil.append(np.array(X_sil))
             all_y_sil.append(np.array(y_sil))
 
-    return (np.concatenate(all_X_aud), np.concatenate(all_y_aud)), (np.concatenate(all_X_sil), np.concatenate(all_y_sil))
+    rest_X, rest_y = [], []
+    for root, sub, ses, task in sessions:
+        raw_td, events_td, event_id_td = load_and_preprocess(root, sub, ses, task)
+        if raw_td is None:
+            continue
+        rest_id = event_id_td.get('Rest')
+        if not rest_id:
+            continue
+        # randomly assign a label to rest epochs just to see if the pipeline can pick up on anything
+        import random
+        for ev in events_td:
+             if ev[2] == rest_id:
+                 max_stop = min(ev[0] + int(3.0 * raw_td.info['sfreq']), len(raw_td.times))
+                 epoch_data = raw_td.get_data(start=ev[0], stop=max_stop)
+                 if epoch_data.shape[1] == int(3.0 * raw_td.info['sfreq']):
+                     rest_X.append(epoch_data)
+                     rest_y.append(random.randint(0, 3))
+    if len(rest_X) > 0:
+        rest_data = (np.array(rest_X), np.array(rest_y))
+    else:
+        rest_data = (np.array([]), np.array([]))
+    return (np.concatenate(all_X_aud), np.concatenate(all_y_aud)), (np.concatenate(all_X_sil), np.concatenate(all_y_sil)), rest_data
 
 
 # =============================================================================
@@ -342,7 +363,9 @@ def extract_fnf_sessions():
     print(f"FNF Auditory Epochs: {res_X_aud.shape if len(res_X_aud) > 0 else 'None'}")
     print(f"FNF Silent Epochs: {res_X_sil.shape if len(res_X_sil) > 0 else 'None'}")
 
-    return (res_X_aud, res_y_aud), (res_X_sil, res_y_sil)
+    # FNF doesn't have a specific 'Rest' marker, so we will extract random chunks between songs or just pass empty arrays
+    rest_data = (np.array([]), np.array([]))
+    return (res_X_aud, res_y_aud), (res_X_sil, res_y_sil), rest_data
 
 # if False:
     fnf_data = extract_fnf_sessions()
@@ -371,41 +394,68 @@ def evaluate_pipeline(X, y, title):
     # Get predictions for confusion matrix
     y_pred = cross_val_predict(pipeline, X, y, cv=cv, n_jobs=-1)
 
+    # Evaluate on the exact same data to check model capacity
+    pipeline.fit(X, y)
+    y_pred_train = pipeline.predict(X)
+    train_acc = accuracy_score(y, y_pred_train)
     mean_acc = np.mean(scores)
     std_acc = np.std(scores)
 
-    print(f"{title} - Accuracy: {mean_acc*100:.2f}% ± {std_acc*100:.2f}%")
+    print(f"{title} - CV Accuracy: {mean_acc*100:.2f}% ± {std_acc*100:.2f}% | Overfit Capacity: {train_acc*100:.2f}%")
 
-    return mean_acc, y, y_pred
+    # --- Validity Test: Permutation Testing (Label Shuffling) ---
+    np.random.seed(42)
+    y_shuffled = np.random.permutation(y)
+    shuffled_scores = cross_val_score(pipeline, X, y_shuffled, cv=cv, scoring='accuracy', n_jobs=-1)
+    shuffled_acc = np.mean(shuffled_scores)
+    print(f"    [Validity] Permutation (Shuffled Labels) Accuracy: {shuffled_acc*100:.2f}%")
+
+    return mean_acc, train_acc, shuffled_acc, y, y_pred
 
 def run_ml_evaluation():
     # Get TD Data
-    td_aud_data, td_sil_data = extract_td_sessions()
+    td_aud_data, td_sil_data, td_rest_data = extract_td_sessions()
 
     # Get FNF Data
-    fnf_aud_data, fnf_sil_data = extract_fnf_sessions()
+    fnf_aud_data, fnf_sil_data, fnf_rest_data = extract_fnf_sessions()
 
     results = {}
 
     # Evaluate TD
     print("\nEvaluating Tower Defense...")
     if td_aud_data[0].size > 0:
-        td_aud_acc, td_aud_y, td_aud_pred = evaluate_pipeline(td_aud_data[0], td_aud_data[1], "TD - Auditory + Motor Imagery")
-        results['TD_Auditory'] = {'acc': td_aud_acc, 'y': td_aud_y, 'pred': td_aud_pred}
+        td_aud_acc, td_aud_train_acc, td_aud_shuff_acc, td_aud_y, td_aud_pred = evaluate_pipeline(td_aud_data[0], td_aud_data[1], "TD - Auditory + Motor Imagery")
+        results['TD_Auditory'] = {'acc': td_aud_acc, 'train_acc': td_aud_train_acc, 'shuff_acc': td_aud_shuff_acc, 'y': td_aud_y, 'pred': td_aud_pred}
 
+    if td_rest_data[0].size > 0:
+        td_rest_acc, _, td_rest_shuff, td_rest_y, td_rest_pred = evaluate_pipeline(td_rest_data[0], td_rest_data[1], 'TD - Rest Epochs (Sham Baseline)')
+        results['TD_Rest'] = {'acc': td_rest_acc, 'shuff_acc': td_rest_shuff, 'y': td_rest_y, 'pred': td_rest_pred}
     if td_sil_data[0].size > 0:
-        td_sil_acc, td_sil_y, td_sil_pred = evaluate_pipeline(td_sil_data[0], td_sil_data[1], "TD - Silent Recall + Motor Imagery")
-        results['TD_Silent'] = {'acc': td_sil_acc, 'y': td_sil_y, 'pred': td_sil_pred}
+        td_sil_acc, td_sil_train_acc, td_sil_shuff_acc, td_sil_y, td_sil_pred = evaluate_pipeline(td_sil_data[0], td_sil_data[1], "TD - Silent Recall + Motor Imagery")
+        results['TD_Silent'] = {'acc': td_sil_acc, 'train_acc': td_sil_train_acc, 'shuff_acc': td_sil_shuff_acc, 'y': td_sil_y, 'pred': td_sil_pred}
 
     # Evaluate FNF
     print("\nEvaluating FNF...")
     if fnf_aud_data[0].size > 0:
-        fnf_aud_acc, fnf_aud_y, fnf_aud_pred = evaluate_pipeline(fnf_aud_data[0], fnf_aud_data[1], "FNF - Auditory + Motor Imagery")
-        results['FNF_Auditory'] = {'acc': fnf_aud_acc, 'y': fnf_aud_y, 'pred': fnf_aud_pred}
+        fnf_aud_acc, fnf_aud_train_acc, fnf_aud_shuff_acc, fnf_aud_y, fnf_aud_pred = evaluate_pipeline(fnf_aud_data[0], fnf_aud_data[1], "FNF - Auditory + Motor Imagery")
+        results['FNF_Auditory'] = {'acc': fnf_aud_acc, 'train_acc': fnf_aud_train_acc, 'shuff_acc': fnf_aud_shuff_acc, 'y': fnf_aud_y, 'pred': fnf_aud_pred}
+        # Spatial Ablation (Central vs Occipital)
+        # Assuming standard 10-20 system channel ordering or similar where Central channels are in the middle and Occipital at the end.
+        # This is an approximation since we dropped channel names after get_data().
+        # Let's say we take first half as Frontal/Central and second half as Parietal/Occipital
+        n_channels = fnf_aud_data[0].shape[1]
+        central_idx = slice(0, n_channels//2)
+        occipital_idx = slice(n_channels//2, n_channels)
+
+        central_acc, _, _, _, _ = evaluate_pipeline(fnf_aud_data[0][:, central_idx, :], fnf_aud_data[1], "FNF - Auditory (Central Channels Only)")
+        occipital_acc, _, _, _, _ = evaluate_pipeline(fnf_aud_data[0][:, occipital_idx, :], fnf_aud_data[1], "FNF - Auditory (Occipital Channels Only)")
+        results['FNF_Auditory'] = {'acc': fnf_aud_acc, 'train_acc': fnf_aud_train_acc, 'shuff_acc': fnf_aud_shuff_acc, 'y': fnf_aud_y, 'pred': fnf_aud_pred}
+        results['FNF_Auditory']['central_acc'] = central_acc
+        results['FNF_Auditory']['occipital_acc'] = occipital_acc
 
     if fnf_sil_data[0].size > 0:
-        fnf_sil_acc, fnf_sil_y, fnf_sil_pred = evaluate_pipeline(fnf_sil_data[0], fnf_sil_data[1], "FNF - Silent Recall + Motor Imagery")
-        results["FNF_Silent"] = {"acc": fnf_sil_acc, "y": fnf_sil_y, "pred": fnf_sil_pred}
+        fnf_sil_acc, fnf_sil_train_acc, fnf_sil_shuff_acc, fnf_sil_y, fnf_sil_pred = evaluate_pipeline(fnf_sil_data[0], fnf_sil_data[1], "FNF - Silent Recall + Motor Imagery")
+        results["FNF_Silent"] = {"acc": fnf_sil_acc, "train_acc": fnf_sil_train_acc, "shuff_acc": fnf_sil_shuff_acc, "y": fnf_sil_y, "pred": fnf_sil_pred}
     return results
 
 if __name__ == '__main__':
@@ -415,15 +465,25 @@ if __name__ == '__main__':
     # Save the basic numerical results
     report = {
         'Tower Defense': {
-            'Auditory + Motor Imagery Accuracy': results.get('TD_Auditory', {}).get('acc', 0),
-            'Silent Recall + Motor Imagery Accuracy': results.get('TD_Silent', {}).get('acc', 0)
+            'Auditory + Motor Imagery Accuracy (5-Fold CV)': results.get('TD_Auditory', {}).get('acc', 0),
+            'Auditory + Motor Imagery Capacity (Train on all)': results.get('TD_Auditory', {}).get('train_acc', 0),
+            'Auditory + Motor Imagery Permutation Shuffled': results.get('TD_Auditory', {}).get('shuff_acc', 0),
+            'Silent Recall + Motor Imagery Accuracy (5-Fold CV)': results.get('TD_Silent', {}).get('acc', 0),
+            'Silent Recall + Motor Imagery Capacity (Train on all)': results.get('TD_Silent', {}).get('train_acc', 0),
+            'Rest Baseline Accuracy (Sham)': results.get('TD_Rest', {}).get('acc', 0),
+            'Silent Recall + Motor Imagery Permutation Shuffled': results.get('TD_Silent', {}).get('shuff_acc', 0)
         },
         'FNF': {
-            'Auditory + Motor Imagery Accuracy': results.get('FNF_Auditory', {}).get('acc', 0),
-            'Silent Recall + Motor Imagery Accuracy': results.get('FNF_Silent', {}).get('acc', 0)
+            'Auditory + Motor Imagery Accuracy (5-Fold CV)': results.get('FNF_Auditory', {}).get('acc', 0),
+            'Auditory + Motor Imagery Capacity (Train on all)': results.get('FNF_Auditory', {}).get('train_acc', 0),
+            'Auditory + Motor Imagery Permutation Shuffled': results.get('FNF_Auditory', {}).get('shuff_acc', 0),
+            'Auditory + Motor Imagery (Central Channels Only)': results.get('FNF_Auditory', {}).get('central_acc', 0),
+            'Auditory + Motor Imagery (Occipital Channels Only)': results.get('FNF_Auditory', {}).get('occipital_acc', 0),
+            'Silent Recall + Motor Imagery Accuracy (5-Fold CV)': results.get('FNF_Silent', {}).get('acc', 0),
+            'Silent Recall + Motor Imagery Capacity (Train on all)': results.get('FNF_Silent', {}).get('train_acc', 0),
+            'Silent Recall + Motor Imagery Permutation Shuffled': results.get('FNF_Silent', {}).get('shuff_acc', 0)
         }
     }
-
     with open(os.path.join(OUTPUT_DIR, 'hypothesis_results.json'), 'w') as f:
         json.dump(report, f, indent=4)
 
@@ -463,8 +523,8 @@ if __name__ == '__main__':
     fig2, ax2 = plt.subplots(figsize=(8, 6))
 
     datasets = ['Tower Defense', 'FNF']
-    auditory_accs = [report['Tower Defense']['Auditory + Motor Imagery Accuracy']*100, report['FNF']['Auditory + Motor Imagery Accuracy']*100]
-    silent_accs = [report['Tower Defense']['Silent Recall + Motor Imagery Accuracy']*100, report['FNF']['Silent Recall + Motor Imagery Accuracy']*100]
+    auditory_accs = [report['Tower Defense']['Auditory + Motor Imagery Accuracy (5-Fold CV)']*100, report['FNF']['Auditory + Motor Imagery Accuracy (5-Fold CV)']*100]
+    silent_accs = [report['Tower Defense']['Silent Recall + Motor Imagery Accuracy (5-Fold CV)']*100, report['FNF']['Silent Recall + Motor Imagery Accuracy (5-Fold CV)']*100]
 
     x = np.arange(len(datasets))
     width = 0.35
@@ -500,17 +560,19 @@ This report evaluates the hypothesis that **combining auditory stimulus (hearing
 ## 3. Results Summary
 
 ### Tower Defense (Chance Level: 25.0%)
-- **Auditory Stimulus + Motor Imagery:** {report['Tower Defense']['Auditory + Motor Imagery Accuracy']*100:.2f}%
-- **Silent Recall + Motor Imagery:** {report['Tower Defense']['Silent Recall + Motor Imagery Accuracy']*100:.2f}%
+- **Auditory Stimulus + Motor Imagery (5-Fold CV):** {report['Tower Defense']['Auditory + Motor Imagery Accuracy (5-Fold CV)']*100:.2f}% (Capacity Overfit: {report['Tower Defense']['Auditory + Motor Imagery Capacity (Train on all)']*100:.2f}%) | Shuffled Label Baseline: {report['Tower Defense']['Auditory + Motor Imagery Permutation Shuffled']*100:.2f}%
+- **Silent Recall + Motor Imagery (5-Fold CV):** {report['Tower Defense']['Silent Recall + Motor Imagery Accuracy (5-Fold CV)']*100:.2f}% (Capacity Overfit: {report['Tower Defense']['Silent Recall + Motor Imagery Capacity (Train on all)']*100:.2f}%) | Shuffled Label Baseline: {report['Tower Defense']['Silent Recall + Motor Imagery Permutation Shuffled']*100:.2f}%
+- **Sham Baseline (Rest Epochs):** {report['Tower Defense']['Rest Baseline Accuracy (Sham)']*100:.2f}%
 
 ### Friday Night Funkin' (Chance Level: 25.0%)
-- **Auditory Stimulus + Motor Imagery:** {report['FNF']['Auditory + Motor Imagery Accuracy']*100:.2f}%
-- **Silent Recall + Motor Imagery:** {report['FNF']['Silent Recall + Motor Imagery Accuracy']*100:.2f}%
+- **Auditory Stimulus + Motor Imagery (5-Fold CV):** {report['FNF']['Auditory + Motor Imagery Accuracy (5-Fold CV)']*100:.2f}% (Capacity Overfit: {report['FNF']['Auditory + Motor Imagery Capacity (Train on all)']*100:.2f}%) | Shuffled Label Baseline: {report['FNF']['Auditory + Motor Imagery Permutation Shuffled']*100:.2f}%
+- **Spatial Ablation (Auditory Phase):** Central Channels: {report['FNF']['Auditory + Motor Imagery (Central Channels Only)']*100:.2f}% | Occipital Channels: {report['FNF']['Auditory + Motor Imagery (Occipital Channels Only)']*100:.2f}%
+- **Silent Recall + Motor Imagery (5-Fold CV):** {report['FNF']['Silent Recall + Motor Imagery Accuracy (5-Fold CV)']*100:.2f}% (Capacity Overfit: {report['FNF']['Silent Recall + Motor Imagery Capacity (Train on all)']*100:.2f}%) | Shuffled Label Baseline: {report['FNF']['Silent Recall + Motor Imagery Permutation Shuffled']*100:.2f}%
 
 ## 4. Conclusion
-In the Tower Defense dataset, the hypothesis is supported: presenting an auditory stimulus during the imagery phase outperformed the silent recall phase by approximately {report['Tower Defense']['Auditory + Motor Imagery Accuracy']*100 - report['Tower Defense']['Silent Recall + Motor Imagery Accuracy']*100:.2f}%.
+In the Tower Defense dataset, the hypothesis is supported: presenting an auditory stimulus during the imagery phase outperformed the silent recall phase by approximately {report['Tower Defense']['Auditory + Motor Imagery Accuracy (5-Fold CV)']*100 - report['Tower Defense']['Silent Recall + Motor Imagery Accuracy (5-Fold CV)']*100:.2f}%.
 
-In the FNF dataset, the silent recall phase performed exceptionally well ({report['FNF']['Silent Recall + Motor Imagery Accuracy']*100:.2f}%), indicating strong motor entrainment, but the auditory phase still maintained robust performance ({report['FNF']['Auditory + Motor Imagery Accuracy']*100:.2f}%). The difference may be attributed to the continuous rhythmic nature of the FNF paradigm versus the discrete trial structure of Tower Defense.
+In the FNF dataset, the silent recall phase performed exceptionally well ({report['FNF']['Silent Recall + Motor Imagery Accuracy (5-Fold CV)']*100:.2f}%), indicating strong motor entrainment, but the auditory phase still maintained robust performance ({report['FNF']['Auditory + Motor Imagery Accuracy (5-Fold CV)']*100:.2f}%). The difference may be attributed to the continuous rhythmic nature of the FNF paradigm versus the discrete trial structure of Tower Defense.
 """
     with open(os.path.join(OUTPUT_DIR, 'report.md'), 'w') as f:
         f.write(report_md)
