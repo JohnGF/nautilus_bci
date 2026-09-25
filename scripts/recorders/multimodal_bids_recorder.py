@@ -236,7 +236,7 @@ class MultimodalBIDSRecorder:
                 os.makedirs(beh_dir, exist_ok=True)
                 
                 # Markers are already relative to self.start_time_lsl (item[0])
-                import pandas as pd
+
                 events_df = pd.DataFrame({
                     "onset": [max(0.0, item[0]) for item in self.marker_events],
                     "duration": [item[2] if len(item) > 2 else 0.1 for item in self.marker_events],

@@ -1,0 +1,506 @@
+onset	duration	trial_type	value	sample
+4.752	0.0	Log system started successfully.	23	1188
+4.756	0.0	Game_Started_scene_fire	8	1189
+4.756	0.003	Rest	24	1189
+7.736	2.98	Start Listen	25	1934
+12.74	5.003	End Listen	4	3185
+12.74	0.0	Box start blinking	1	3185
+14.744	2.006	Box stop blinking	2	3686
+15.752	1.007	FIRE selected	5	3938
+15.752	0.001	Imagine	22	3938
+21.032	5.28	Rest	24	5258
+24.528	3.497	Start Listen	25	6132
+29.532	5.003	End Listen	4	7383
+29.532	0.0	Box start blinking	1	7383
+31.536	2.005	Box stop blinking	2	7884
+32.544	1.007	FIRE selected	5	8136
+32.544	0.001	Imagine	22	8136
+37.048	4.503	Game Finished	6	9262
+57.484	0.001	Log system started successfully.	23	14371
+57.488	0.0	Game_Started_scene_water	16	14372
+57.488	0.002	Rest	24	14372
+60.468	2.98	Start Listen	25	15117
+65.472	5.003	End Listen	4	16368
+65.472	0.0	Box start blinking	1	16368
+67.476	2.006	Box stop blinking	2	16869
+68.484	1.006	WATER selected	26	17121
+68.484	0.001	Imagine	22	17121
+73.764	5.28	Rest	24	18441
+77.26	3.497	Start Listen	25	19315
+82.264	5.003	End Listen	4	20566
+82.264	0.001	Box start blinking	1	20566
+84.272	2.005	Box stop blinking	2	21068
+85.276	1.007	WATER selected	26	21319
+85.276	0.0	Imagine	22	21319
+89.78	4.504	Game Finished	6	22445
+100.488	0.001	Log system started successfully.	23	25122
+100.492	0.0	Game_Started_scene_wind	20	25123
+100.492	0.002	Rest	24	25123
+100.492	0.001	Rest	24	25123
+103.472	2.979	Start Listen	25	25868
+103.472	0.001	Start Listen	25	25868
+108.476	5.003	End Listen	4	27119
+108.476	0.0	Box start blinking	1	27119
+108.476	0.0	End Listen	4	27119
+108.476	0.0	Box start blinking	1	27119
+110.48	2.005	Box stop blinking	2	27620
+110.48	0.001	Box stop blinking	2	27620
+111.488	1.007	WIND selected	27	27872
+111.488	0.0	Imagine	22	27872
+111.488	0.0	WIND selected	27	27872
+111.488	0.001	Imagine	22	27872
+116.76	5.272	Rest	24	29190
+120.256	3.497	Start Listen	25	30064
+121.632	1.374	Rest	24	30408
+125.128	3.498	Start Listen	25	31282
+125.26	0.131	End Listen	4	31315
+125.26	0.0	Box start blinking	1	31315
+127.268	2.005	Box stop blinking	2	31817
+128.272	1.007	WIND selected	27	32068
+128.272	0.001	Imagine	22	32068
+130.132	1.858	End Listen	4	32533
+130.132	0.001	Box start blinking	1	32533
+132.14	2.005	Box stop blinking	2	33035
+132.776	0.64	Game Finished	6	33194
+144.972	0.0	Log system started successfully.	23	36243
+144.972	0.0	Game_Started_scene_electricity	7	36243
+144.972	0.003	Rest	24	36243
+147.952	2.98	Start Listen	25	36988
+152.956	5.003	End Listen	4	38239
+152.956	0.0	Box start blinking	1	38239
+154.96	2.006	Box stop blinking	2	38740
+155.968	1.007	ELECTRICITY selected	3	38992
+155.968	0.0	Imagine	22	38992
+161.244	5.274	Rest	24	40311
+164.74	3.496	Start Listen	25	41185
+169.744	5.004	End Listen	4	42436
+169.744	0.0	Box start blinking	1	42436
+171.748	2.006	Box stop blinking	2	42937
+172.756	1.006	ELECTRICITY selected	3	43189
+172.756	0.0	Imagine	22	43189
+177.26	4.504	Game Finished	6	44315
+195.156	0.0	Log system started successfully.	23	48789
+195.16	0.0	Game_Started_scene_fire_water	10	48790
+195.16	0.003	Rest	24	48790
+198.14	2.979	Start Listen	25	49535
+203.144	5.004	End Listen	4	50786
+203.144	0.0	Box start blinking	1	50786
+205.148	2.005	Box stop blinking	2	51287
+206.156	1.007	FIRE selected	5	51539
+206.156	0.0	Imagine	22	51539
+211.428	5.274	Rest	24	52857
+214.924	3.497	Start Listen	25	53731
+219.928	5.003	End Listen	4	54982
+219.928	0.0	Box start blinking	1	54982
+221.936	2.005	Box stop blinking	2	55484
+222.94	1.007	WATER selected	26	55735
+222.94	0.0	Imagine	22	55735
+227.444	4.504	Rest	24	56861
+230.94	3.497	Start Listen	25	57735
+235.944	5.003	End Listen	4	58986
+235.944	0.0	Box start blinking	1	58986
+237.952	2.005	Box stop blinking	2	59488
+238.956	1.007	FIRE selected	5	59739
+238.956	0.0	Imagine	22	59739
+243.46	4.504	Rest	24	60865
+246.956	3.497	Start Listen	25	61739
+251.96	5.003	End Listen	4	62990
+251.96	0.0	Box start blinking	1	62990
+253.968	2.005	Box stop blinking	2	63492
+254.972	1.007	WATER selected	26	63743
+254.972	0.0	Imagine	22	63743
+259.464	4.49	Game Finished	6	64866
+269.624	0.001	Log system started successfully.	23	67406
+269.628	0.0	Game_Started_scene_fire_wind	13	67407
+269.628	0.003	Rest	24	67407
+272.604	2.978	Start Listen	25	68151
+277.608	5.003	End Listen	4	69402
+277.608	0.001	Box start blinking	1	69402
+279.616	2.005	Box stop blinking	2	69904
+280.62	1.006	FIRE selected	5	70155
+280.62	0.001	Imagine	22	70155
+285.896	5.274	Rest	24	71474
+289.392	3.496	Start Listen	25	72348
+294.396	5.003	End Listen	4	73599
+294.396	0.001	Box start blinking	1	73599
+296.4	2.005	Box stop blinking	2	74100
+297.408	1.007	WIND selected	27	74352
+297.408	0.0	Imagine	22	74352
+301.912	4.504	Rest	24	75478
+305.408	3.497	Start Listen	25	76352
+310.412	5.003	End Listen	4	77603
+310.412	0.0	Box start blinking	1	77603
+312.416	2.005	Box stop blinking	2	78104
+313.424	1.007	FIRE selected	5	78356
+313.424	0.0	Imagine	22	78356
+317.928	4.504	Rest	24	79482
+321.424	3.496	Start Listen	25	80356
+326.428	5.004	End Listen	4	81607
+326.428	0.0	Box start blinking	1	81607
+328.432	2.005	Box stop blinking	2	82108
+329.44	1.007	WIND selected	27	82360
+329.44	0.0	Imagine	22	82360
+333.908	4.469	Game Finished	6	83477
+346.784	0.0	Log system started successfully.	23	86696
+346.788	0.0	Game_Started_scene_fire_electricity	9	86697
+346.788	0.003	Rest	24	86697
+349.764	2.977	Start Listen	25	87441
+354.768	5.003	End Listen	4	88692
+354.768	0.0	Box start blinking	1	88692
+356.776	2.006	Box stop blinking	2	89194
+357.78	1.007	FIRE selected	5	89445
+357.78	0.0	Imagine	22	89445
+363.06	5.281	Rest	24	90765
+366.56	3.496	Start Listen	25	91640
+371.56	5.004	End Listen	4	92890
+371.564	0.0	Box start blinking	1	92891
+373.568	2.005	Box stop blinking	2	93392
+374.576	1.007	ELECTRICITY selected	3	93644
+374.576	0.0	Imagine	22	93644
+379.08	4.504	Rest	24	94770
+382.576	3.497	Start Listen	25	95644
+387.58	5.003	End Listen	4	96895
+387.58	0.0	Box start blinking	1	96895
+389.584	2.005	Box stop blinking	2	97396
+390.592	1.008	FIRE selected	5	97648
+390.592	0.0	Imagine	22	97648
+395.08	4.489	Rest	24	98770
+398.576	3.497	Start Listen	25	99644
+403.58	5.003	End Listen	4	100895
+403.58	0.001	Box start blinking	1	100895
+405.584	2.005	Box stop blinking	2	101396
+406.592	1.006	ELECTRICITY selected	3	101648
+406.592	0.001	Imagine	22	101648
+411.084	4.49	Game Finished	6	102771
+422.688	0.001	Log system started successfully.	23	105672
+422.692	0.0	Game_Started_scene_water_wind	18	105673
+422.692	0.002	Rest	24	105673
+425.668	2.977	Start Listen	25	106417
+430.672	5.003	End Listen	4	107668
+430.672	0.001	Box start blinking	1	107668
+432.676	2.005	Box stop blinking	2	108169
+433.684	1.007	WATER selected	26	108421
+433.684	0.0	Imagine	22	108421
+438.964	5.281	Rest	24	109741
+442.464	3.497	Start Listen	25	110616
+447.464	5.003	End Listen	4	111866
+447.464	0.0	Box start blinking	1	111866
+449.472	2.006	Box stop blinking	2	112368
+450.476	1.007	WIND selected	27	112619
+450.476	0.0	Imagine	22	112619
+454.98	4.503	Rest	24	113745
+458.48	3.497	Start Listen	25	114620
+463.48	5.004	End Listen	4	115870
+463.48	0.0	Box start blinking	1	115870
+465.488	2.005	Box stop blinking	2	116372
+466.492	1.007	WATER selected	26	116623
+466.496	0.0	Imagine	22	116624
+470.976	4.483	Rest	24	117744
+474.472	3.496	Start Listen	25	118618
+479.476	5.004	End Listen	4	119869
+479.476	0.0	Box start blinking	1	119869
+481.484	2.005	Box stop blinking	2	120371
+482.488	1.007	WIND selected	27	120622
+482.488	0.001	Imagine	22	120622
+486.98	4.489	Game Finished	6	121745
+495.336	0.0	Log system started successfully.	23	123834
+495.336	0.0	Game_Started_scene_water_electricity	17	123834
+495.336	0.003	Rest	24	123834
+498.316	2.979	Start Listen	25	124579
+503.32	5.003	End Listen	4	125830
+503.32	0.001	Box start blinking	1	125830
+505.328	2.005	Box stop blinking	2	126332
+506.332	1.007	WATER selected	26	126583
+506.332	0.001	Imagine	22	126583
+511.616	5.28	Rest	24	127904
+515.112	3.497	Start Listen	25	128778
+520.116	5.003	End Listen	4	130029
+520.116	0.0	Box start blinking	1	130029
+522.12	2.005	Box stop blinking	2	130530
+523.128	1.008	ELECTRICITY selected	3	130782
+523.128	0.0	Imagine	22	130782
+527.632	4.503	Rest	24	131908
+531.128	3.497	Start Listen	25	132782
+536.132	5.003	End Listen	4	134033
+536.132	0.001	Box start blinking	1	134033
+538.136	2.005	Box stop blinking	2	134534
+539.144	1.007	WATER selected	26	134786
+539.144	0.0	Imagine	22	134786
+543.624	4.483	Rest	24	135906
+547.124	3.496	Start Listen	25	136781
+552.124	5.004	End Listen	4	138031
+552.124	0.0	Box start blinking	1	138031
+554.132	2.005	Box stop blinking	2	138533
+555.14	1.007	ELECTRICITY selected	3	138785
+555.14	0.0	Imagine	22	138785
+559.628	4.49	Game Finished	6	139907
+574.256	0.001	Log system started successfully.	23	143564
+574.26	0.0	Game_Started_scene_wind_electricity	21	143565
+574.26	0.002	Rest	24	143565
+577.24	2.979	Start Listen	25	144310
+582.244	5.004	End Listen	4	145561
+582.244	0.0	Box start blinking	1	145561
+584.248	2.005	Box stop blinking	2	146062
+585.256	1.007	WIND selected	27	146314
+585.256	0.0	Imagine	22	146314
+590.528	5.274	Rest	24	147632
+594.024	3.497	Start Listen	25	148506
+599.028	5.003	End Listen	4	149757
+599.028	0.0	Box start blinking	1	149757
+601.036	2.005	Box stop blinking	2	150259
+602.04	1.007	ELECTRICITY selected	3	150510
+602.04	0.001	Imagine	22	150510
+606.544	4.503	Rest	24	151636
+610.044	3.497	Start Listen	25	152511
+615.044	5.003	End Listen	4	153761
+615.044	0.001	Box start blinking	1	153761
+617.052	2.005	Box stop blinking	2	154263
+618.056	1.006	WIND selected	27	154514
+618.056	0.001	Imagine	22	154514
+622.56	4.503	Rest	24	155640
+626.056	3.497	Start Listen	25	156514
+631.06	5.003	End Listen	4	157765
+631.06	0.001	Box start blinking	1	157765
+633.068	2.005	Box stop blinking	2	158267
+634.076	1.007	ELECTRICITY selected	3	158519
+634.076	0.0	Imagine	22	158519
+638.564	4.489	Game Finished	6	159641
+647.832	0.001	Log system started successfully.	23	161958
+647.832	0.0	Game_Started_scene_fire_water_wind	12	161958
+647.832	0.002	Rest	24	161958
+650.812	2.978	Start Listen	25	162703
+655.816	5.003	End Listen	4	163954
+655.816	0.001	Box start blinking	1	163954
+657.82	2.005	Box stop blinking	2	164455
+658.828	1.007	FIRE selected	5	164707
+658.828	0.0	Imagine	22	164707
+664.092	5.267	Rest	24	166023
+667.592	3.496	Start Listen	25	166898
+672.592	5.004	End Listen	4	168148
+672.596	0.0	Box start blinking	1	168149
+674.6	2.005	Box stop blinking	2	168650
+675.608	1.007	WATER selected	26	168902
+675.608	0.0	Imagine	22	168902
+680.132	4.525	Rest	24	170033
+683.628	3.497	Start Listen	25	170907
+688.632	5.003	End Listen	4	172158
+688.632	0.0	Box start blinking	1	172158
+690.636	2.005	Box stop blinking	2	172659
+691.644	1.007	WIND selected	27	172911
+691.644	0.0	Imagine	22	172911
+696.128	4.483	Rest	24	174032
+699.624	3.497	Start Listen	25	174906
+704.628	5.003	End Listen	4	176157
+704.628	0.0	Box start blinking	1	176157
+706.632	2.005	Box stop blinking	2	176658
+707.64	1.008	FIRE selected	5	176910
+707.64	0.0	Imagine	22	176910
+712.128	4.49	Rest	24	178032
+715.624	3.496	Start Listen	25	178906
+720.628	5.003	End Listen	4	180157
+720.628	0.001	Box start blinking	1	180157
+722.632	2.005	Box stop blinking	2	180658
+723.64	1.006	WATER selected	26	180910
+723.64	0.001	Imagine	22	180910
+728.132	4.49	Rest	24	182033
+731.628	3.497	Start Listen	25	182907
+736.632	5.003	End Listen	4	184158
+736.632	0.0	Box start blinking	1	184158
+738.636	2.005	Box stop blinking	2	184659
+739.644	1.008	WIND selected	27	184911
+739.644	0.0	Imagine	22	184911
+744.128	4.482	Game Finished	6	186032
+754.112	0.0	Log system started successfully.	23	188528
+754.116	0.0	Game_Started_scene_fire_water_electricity	11	188529
+754.116	0.003	Rest	24	188529
+757.096	2.98	Start Listen	25	189274
+762.1	5.004	End Listen	4	190525
+762.1	0.0	Box start blinking	1	190525
+764.104	2.005	Box stop blinking	2	191026
+765.112	1.007	FIRE selected	5	191278
+765.112	0.001	Imagine	22	191278
+770.38	5.266	Rest	24	192595
+773.876	3.496	Start Listen	25	193469
+778.88	5.004	End Listen	4	194720
+778.88	0.0	Box start blinking	1	194720
+780.884	2.005	Box stop blinking	2	195221
+781.892	1.007	WATER selected	26	195473
+781.892	0.0	Imagine	22	195473
+786.416	4.525	Rest	24	196604
+789.912	3.497	Start Listen	25	197478
+794.916	5.003	End Listen	4	198729
+794.916	0.0	Box start blinking	1	198729
+796.92	2.005	Box stop blinking	2	199230
+797.928	1.008	ELECTRICITY selected	3	199482
+797.928	0.0	Imagine	22	199482
+802.412	4.483	Rest	24	200603
+805.908	3.496	Start Listen	25	201477
+810.912	5.003	End Listen	4	202728
+810.912	0.001	Box start blinking	1	202728
+812.916	2.005	Box stop blinking	2	203229
+813.924	1.007	FIRE selected	5	203481
+813.924	0.0	Imagine	22	203481
+818.412	4.49	Rest	24	204603
+821.912	3.497	Start Listen	25	205478
+826.912	5.003	End Listen	4	206728
+826.912	0.0	Box start blinking	1	206728
+828.916	2.005	Box stop blinking	2	207229
+829.924	1.007	WATER selected	26	207481
+829.924	0.0	Imagine	22	207481
+834.416	4.49	Rest	24	208604
+837.912	3.497	Start Listen	25	209478
+842.916	5.003	End Listen	4	210729
+842.916	0.0	Box start blinking	1	210729
+844.92	2.005	Box stop blinking	2	211230
+845.928	1.008	ELECTRICITY selected	3	211482
+845.928	0.0	Imagine	22	211482
+850.412	4.482	Game Finished	6	212603
+858.608	0.0	Log system started successfully.	23	214652
+858.608	0.0	Game_Started_scene_fire_wind_electricity	14	214652
+858.608	0.002	Rest	24	214652
+861.588	2.981	Start Listen	25	215397
+866.592	5.003	End Listen	4	216648
+866.592	0.0	Box start blinking	1	216648
+868.596	2.006	Box stop blinking	2	217149
+869.604	1.007	FIRE selected	5	217401
+869.604	0.0	Imagine	22	217401
+874.88	5.274	Rest	24	218720
+878.376	3.496	Start Listen	25	219594
+883.38	5.003	End Listen	4	220845
+883.38	0.001	Box start blinking	1	220845
+885.384	2.005	Box stop blinking	2	221346
+886.392	1.007	WIND selected	27	221598
+886.392	0.0	Imagine	22	221598
+890.896	4.504	Rest	24	222724
+894.392	3.496	Start Listen	25	223598
+899.396	5.004	End Listen	4	224849
+899.396	0.0	Box start blinking	1	224849
+901.4	2.005	Box stop blinking	2	225350
+902.408	1.007	ELECTRICITY selected	3	225602
+902.408	0.0	Imagine	22	225602
+906.912	4.504	Rest	24	226728
+910.408	3.497	Start Listen	25	227602
+915.412	5.003	End Listen	4	228853
+915.412	0.0	Box start blinking	1	228853
+917.416	2.005	Box stop blinking	2	229354
+918.424	1.008	FIRE selected	5	229606
+918.424	0.0	Imagine	22	229606
+922.9	4.475	Rest	24	230725
+926.396	3.497	Start Listen	25	231599
+931.4	5.003	End Listen	4	232850
+931.4	0.0	Box start blinking	1	232850
+933.404	2.006	Box stop blinking	2	233351
+934.412	1.007	WIND selected	27	233603
+934.412	0.0	Imagine	22	233603
+938.896	4.483	Rest	24	234724
+942.392	3.496	Start Listen	25	235598
+947.396	5.004	End Listen	4	236849
+947.396	0.0	Box start blinking	1	236849
+949.4	2.005	Box stop blinking	2	237350
+950.408	1.007	ELECTRICITY selected	3	237602
+950.408	0.0	Imagine	22	237602
+954.896	4.49	Game Finished	6	238724
+969.288	0.001	Log system started successfully.	23	242322
+969.292	0.0	Game_Started_scene_water_wind_electricity	19	242323
+969.292	0.002	Rest	24	242323
+972.272	2.981	Start Listen	25	243068
+977.276	5.003	End Listen	4	244319
+977.276	0.0	Box start blinking	1	244319
+979.28	2.005	Box stop blinking	2	244820
+980.288	1.007	WATER selected	26	245072
+980.288	0.0	Imagine	22	245072
+985.564	5.274	Rest	24	246391
+989.06	3.497	Start Listen	25	247265
+994.064	5.004	End Listen	4	248516
+994.064	0.0	Box start blinking	1	248516
+996.068	2.005	Box stop blinking	2	249017
+997.076	1.007	WIND selected	27	249269
+997.076	0.0	Imagine	22	249269
+1001.58	4.503	Rest	24	250395
+1005.076	3.497	Start Listen	25	251269
+1010.08	5.004	End Listen	4	252520
+1010.08	0.0	Box start blinking	1	252520
+1012.084	2.005	Box stop blinking	2	253021
+1013.092	1.007	ELECTRICITY selected	3	253273
+1013.092	0.0	Imagine	22	253273
+1017.596	4.504	Rest	24	254399
+1021.092	3.496	Start Listen	25	255273
+1026.096	5.004	End Listen	4	256524
+1026.096	0.0	Box start blinking	1	256524
+1028.1	2.005	Box stop blinking	2	257025
+1029.108	1.007	WATER selected	26	257277
+1029.108	0.0	Imagine	22	257277
+1033.584	4.476	Rest	24	258396
+1037.08	3.497	Start Listen	25	259270
+1042.084	5.003	End Listen	4	260521
+1042.084	0.0	Box start blinking	1	260521
+1044.088	2.005	Box stop blinking	2	261022
+1045.096	1.008	WIND selected	27	261274
+1045.096	0.0	Imagine	22	261274
+1049.58	4.482	Rest	24	262395
+1053.076	3.497	Start Listen	25	263269
+1058.08	5.003	End Listen	4	264520
+1058.08	0.001	Box start blinking	1	264520
+1060.084	2.005	Box stop blinking	2	265021
+1061.092	1.007	ELECTRICITY selected	3	265273
+1061.092	0.0	Imagine	22	265273
+1065.596	4.504	Game Finished	6	266399
+1077.096	0.0	Log system started successfully.	23	269274
+1077.096	0.0	Game_Started_scene_four_elements	15	269274
+1077.096	0.002	Rest	24	269274
+1080.076	2.981	Start Listen	25	270019
+1085.08	5.003	End Listen	4	271270
+1085.08	0.0	Box start blinking	1	271270
+1087.084	2.005	Box stop blinking	2	271771
+1088.092	1.007	WATER selected	26	272023
+1088.092	0.0	Imagine	22	272023
+1093.38	5.288	Rest	24	273345
+1096.876	3.497	Start Listen	25	274219
+1101.88	5.003	End Listen	4	275470
+1101.88	0.0	Box start blinking	1	275470
+1103.884	2.005	Box stop blinking	2	275971
+1104.892	1.008	ELECTRICITY selected	3	276223
+1104.892	0.0	Imagine	22	276223
+1109.396	4.503	Rest	24	277349
+1112.892	3.497	Start Listen	25	278223
+1117.896	5.003	End Listen	4	279474
+1117.896	0.001	Box start blinking	1	279474
+1119.904	2.005	Box stop blinking	2	279976
+1120.908	1.007	FIRE selected	5	280227
+1120.908	0.0	Imagine	22	280227
+1125.4	4.489	Rest	24	281350
+1128.896	3.497	Start Listen	25	282224
+1133.9	5.003	End Listen	4	283475
+1133.9	0.001	Box start blinking	1	283475
+1135.904	2.005	Box stop blinking	2	283976
+1136.912	1.007	WIND selected	27	284228
+1136.912	0.001	Imagine	22	284228
+1141.392	4.482	Rest	24	285348
+1144.892	3.496	Start Listen	25	286223
+1149.896	5.004	End Listen	4	287474
+1149.896	0.0	Box start blinking	1	287474
+1151.9	2.005	Box stop blinking	2	287975
+1152.908	1.007	WATER selected	26	288227
+1152.908	0.001	Imagine	22	288227
+1157.396	4.489	Rest	24	289349
+1160.892	3.497	Start Listen	25	290223
+1165.896	5.003	End Listen	4	291474
+1165.896	0.0	Box start blinking	1	291474
+1167.9	2.006	Box stop blinking	2	291975
+1168.908	1.006	ELECTRICITY selected	3	292227
+1168.908	0.0	Imagine	22	292227
+1173.4	4.491	Rest	24	293350
+1176.896	3.497	Start Listen	25	294224
+1181.9	5.002	End Listen	4	295475
+1181.9	0.001	Box start blinking	1	295475
+1183.904	2.005	Box stop blinking	2	295976
+1184.912	1.007	FIRE selected	5	296228
+1184.912	0.0	Imagine	22	296228
+1189.392	4.483	Rest	24	297348
+1192.892	3.496	Start Listen	25	298223
+1197.892	5.004	End Listen	4	299473
+1197.896	0.0	Box start blinking	1	299474
+1199.9	2.005	Box stop blinking	2	299975
+1200.908	1.007	WIND selected	27	300227
+1200.908	0.001	Imagine	22	300227
+1205.396	4.489	Game Finished	6	301349

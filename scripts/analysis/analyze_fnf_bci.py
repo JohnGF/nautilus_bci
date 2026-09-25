@@ -1,27 +1,32 @@
 """
 Friday Night Funkin' (FNF) Arrow Lock-On BCI Analysis Suite
 ============================================================
-Processes the 4 FNF BIDS sessions:
-  - ses-01 (Mind / Motor Imagery - task-leftright)
-  - ses-02 (Mind / Motor Imagery - task-leftright)
-  - ses-03 (Mind / Motor Imagery - task-leftright)
-  - ses-04 (Movement / Motor Execution - task-me)
+Comprehensive decoding and neural dynamics analysis for all 7 FNF BIDS sessions:
+  - ses-01 (Mind / Motor Imagery - task-leftright, Left Arrow)
+  - ses-02 (Mind / Motor Imagery - task-leftright, Left Arrow)
+  - ses-03 (Mind / Motor Imagery - task-leftright, Left Arrow)
+  - ses-04 (Movement / Motor Execution - task-me, Left Arrow)
+  - ses-05 (Mind / Motor Imagery - task-leftright, Left Arrow)
+  - ses-06 (Mind / Motor Imagery - task-leftright, Left Arrow)
+  - ses-07 (Mind / 4 Directions - task-leftright: Left, Right, Up, Down)
 
-Events:
-  - Target Event: `Arrow_Left_HitZone` (arrow reaches the target objective)
-  - Ignored Events: `Left_Miss`, `Left_Perfect`, `Left_Great`, `Left_Good`, `Left_Ok`, `Left_Pressed` (other player/feedback)
-  - Rest/Baseline: Non-arrow / listening baseline epochs
+Paradigms & Evaluations:
+  1. Single-Session Target vs Rest Decoding across all 7 sessions (5-Fold CV)
+  2. ses-07 4-Class Directional Decoding (Left vs Right vs Up vs Down; Chance = 25%)
+  3. ses-07 Pairwise Directional Decoding (Left vs Right, Up vs Down, etc.)
+  4. Mind (ses-01,02,03,05,06,07) vs Movement (ses-04) Decoding
+  5. Cross-Session & Cross-Condition Transfer Learning
+  6. Cortical Topographic Scalp Mapping & Lateralization (Contralateral ERD/ERS)
+  7. Time-Locked Evoked Potential (ERP) Dynamics across Directions
 
-Algorithms evaluated from scripts/analysis:
-  1. CSP + Linear Discriminant Analysis (LDA with OAS shrinkage)
-  2. CSP + Support Vector Machine (Linear / RBF)
-  3. CSP + Random Forest
-  4. Riemannian Geometry: Covariances + Tangent Space + Logistic Regression
-  5. Riemannian Geometry: Covariances + Tangent Space + SVM (RBF)
-  6. Riemannian Geometry: Minimum Distance to Mean (MDM)
-  7. Deep Learning: PyTorch EEGNet (Lawhern et al., 2018)
-  8. Time-Frequency / Spectral ERD/ERS & Topographic Scalp Mapping
-  9. Cross-Condition Transfer Learning (Mind -> Movement & Movement -> Mind)
+Algorithms:
+  - CSP + Linear Discriminant Analysis (LDA with OAS shrinkage)
+  - CSP + Support Vector Machine (RBF)
+  - CSP + Random Forest
+  - Riemannian Geometry: Covariances + Tangent Space + Logistic Regression
+  - Riemannian Geometry: Covariances + Tangent Space + SVM (RBF)
+  - Riemannian Geometry: Minimum Distance to Mean (MDM)
+  - Deep Learning: PyTorch EEGNet (Lawhern et al., 2018)
 """
 
 import os
@@ -55,8 +60,8 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.model_selection import StratifiedKFold, cross_val_score, cross_val_predict
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, classification_report
 
 import pyriemann
 from pyriemann.estimation import Covariances
@@ -75,6 +80,8 @@ STANDARD_32 = [
     'Fz', 'Cz', 'Pz', 'Oz', 'FC1', 'FC2', 'CP1', 'CP2', 
     'FC5', 'FC6', 'CP5', 'CP6', 'FT9', 'FT10', 'TP9', 'TP10'
 ]
+
+DIRECTIONS = ['Left', 'Right', 'Up', 'Down']
 
 
 # =====================================================================
@@ -102,7 +109,7 @@ class RegCovariances(BaseEstimator, TransformerMixin):
 
 
 # =====================================================================
-# 1. PyTorch EEGNet Architecture
+# 1. PyTorch EEGNet Architecture (Supports arbitrary n_classes)
 # =====================================================================
 class EEGNet(nn.Module):
     def __init__(self, n_channels=32, n_samples=176, n_classes=2, F1=8, D=2, F2=16, kernel_length=32, dropout_rate=0.25):
@@ -155,13 +162,15 @@ class EEGNet(nn.Module):
         return out
 
 
-def train_eval_eegnet(X, y, cv_folds=5, epochs=35, batch_size=32, lr=0.005):
+def train_eval_eegnet(X, y, cv_folds=5, epochs=30, batch_size=32, lr=0.005):
     """Evaluates EEGNet via Stratified K-Fold Cross Validation."""
     device = torch.device('cpu')
     skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
     
     n_epochs_data, n_ch, n_samples = X.shape
+    n_classes = len(np.unique(y))
     acc_scores = []
+    all_preds = np.zeros(len(y), dtype=int)
     
     for train_idx, test_idx in skf.split(X, y):
         X_train, y_train = X[train_idx], y[train_idx]
@@ -175,7 +184,7 @@ def train_eval_eegnet(X, y, cv_folds=5, epochs=35, batch_size=32, lr=0.005):
         train_ds = TensorDataset(X_train_t, y_train_t)
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
         
-        model = EEGNet(n_channels=n_ch, n_samples=n_samples, n_classes=len(np.unique(y))).to(device)
+        model = EEGNet(n_channels=n_ch, n_samples=n_samples, n_classes=n_classes).to(device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-3)
         
@@ -195,14 +204,18 @@ def train_eval_eegnet(X, y, cv_folds=5, epochs=35, batch_size=32, lr=0.005):
             preds = torch.argmax(out_test, dim=1).cpu().numpy()
             acc = accuracy_score(y_test, preds)
             acc_scores.append(acc)
+            all_preds[test_idx] = preds
             
-    return np.mean(acc_scores), np.std(acc_scores)
+    return np.mean(acc_scores), np.std(acc_scores), all_preds
 
 
 # =====================================================================
-# 2. Robust BIDS Data Loader & Preprocessor
+# 2. Comprehensive BIDS Loader Supporting 1-4 Directions
 # =====================================================================
-def load_fnf_session(bids_root, sub="01", ses="01", task="leftright", l_freq=8.0, h_freq=30.0):
+def load_fnf_session(bids_root, sub="01", ses="01", task=None, l_freq=8.0, h_freq=30.0):
+    if task is None:
+        task = "me" if ses == "04" else "leftright"
+        
     bp = BIDSPath(subject=sub, session=ses, task=task, datatype="eeg", root=bids_root)
     raw = read_raw_bids(bp, verbose=False)
     raw.load_data()
@@ -221,26 +234,66 @@ def load_fnf_session(bids_root, sub="01", ses="01", task="leftright", l_freq=8.0
     raw_filt.notch_filter(freqs=50.0, verbose=False)
     raw_filt.set_eeg_reference('average', projection=False, verbose=False)
     
+    # Broad unfiltered raw copy for ERP & spectral comparison
+    raw_broad = raw.copy().filter(l_freq=1.0, h_freq=40.0, verbose=False).notch_filter(freqs=50.0, verbose=False)
+    raw_broad.set_eeg_reference('average', projection=False, verbose=False)
+    
     # Read annotations
     events, event_id = mne.events_from_annotations(raw, verbose=False)
     
-    hz_code = None
-    for k, v in event_id.items():
-        if 'Arrow_Left_HitZone' in k:
-            hz_code = v
-            break
-            
-    if hz_code is None:
-        raise RuntimeError(f"Could not find Arrow_Left_HitZone in session {ses}")
-        
-    hz_events = events[events[:, 2] == hz_code]
+    # Identify direction hitzone events
+    directional_epochs = {}
+    directional_erp_epochs = {}
+    all_target_events = []
     
-    # Epoching Target window: [-0.1s to 0.6s] around Arrow_Left_HitZone
     tmin, tmax = -0.1, 0.6
-    epochs_target = mne.Epochs(
+    
+    for direction in DIRECTIONS:
+        target_name = f'Arrow_{direction}_HitZone'
+        code = None
+        for k, v in event_id.items():
+            if target_name in k:
+                code = v
+                break
+        if code is not None:
+            d_events = events[events[:, 2] == code]
+            if len(d_events) > 0:
+                all_target_events.append(d_events)
+                ep = mne.Epochs(
+                    raw_filt,
+                    d_events,
+                    event_id={f'Target_{direction}': code},
+                    tmin=tmin,
+                    tmax=tmax,
+                    baseline=(-0.1, 0.0),
+                    preload=True,
+                    verbose=False
+                )
+                directional_epochs[direction] = ep
+                
+                ep_erp = mne.Epochs(
+                    raw_broad,
+                    d_events,
+                    event_id={f'Target_{direction}': code},
+                    tmin=-0.2,
+                    tmax=0.8,
+                    baseline=(-0.2, 0.0),
+                    preload=True,
+                    verbose=False
+                )
+                directional_erp_epochs[direction] = ep_erp
+
+    if len(all_target_events) == 0:
+        raise RuntimeError(f"Could not find any Arrow HitZone events in session {ses}")
+        
+    all_target_events = np.concatenate(all_target_events, axis=0)
+    # Sort events by time
+    all_target_events = all_target_events[np.argsort(all_target_events[:, 0])]
+    
+    # Combined target epochs
+    epochs_target_all = mne.Epochs(
         raw_filt,
-        hz_events,
-        event_id={'Target_HitZone': hz_code},
+        all_target_events,
         tmin=tmin,
         tmax=tmax,
         baseline=(-0.1, 0.0),
@@ -248,18 +301,18 @@ def load_fnf_session(bids_root, sub="01", ses="01", task="leftright", l_freq=8.0
         verbose=False
     )
     
-    # Synthesize Rest / Baseline non-target epochs from quiet periods
-    target_onsets_sec = hz_events[:, 0] / raw.info['sfreq']
+    # Synthesize Rest / Baseline epochs from non-target quiet periods
+    target_onsets_sec = all_target_events[:, 0] / raw.info['sfreq']
     duration_total = raw.times[-1]
     
     candidate_times = np.arange(1.0, duration_total - 1.0, 0.7)
     valid_rest_times = []
     for ct in candidate_times:
         min_dist = np.min(np.abs(target_onsets_sec - ct))
-        if min_dist >= 1.0:
+        if min_dist >= 0.8:
             valid_rest_times.append(ct)
             
-    n_targets = len(epochs_target)
+    n_targets = len(epochs_target_all)
     np.random.seed(42)
     if len(valid_rest_times) > n_targets:
         selected_rest_times = np.random.choice(valid_rest_times, size=n_targets, replace=False)
@@ -282,29 +335,52 @@ def load_fnf_session(bids_root, sub="01", ses="01", task="leftright", l_freq=8.0
         verbose=False
     )
     
-    # Broad unfiltered raw copy for ERP & spectral comparison
-    raw_broad = raw.copy().filter(l_freq=1.0, h_freq=40.0, verbose=False).notch_filter(freqs=50.0, verbose=False)
-    raw_broad.set_eeg_reference('average', projection=False, verbose=False)
-    epochs_erp = mne.Epochs(
-        raw_broad,
-        hz_events,
-        event_id={'Target_HitZone': hz_code},
-        tmin=-0.2,
-        tmax=0.8,
-        baseline=(-0.2, 0.0),
-        preload=True,
-        verbose=False
-    )
-    
     return {
         'session_id': ses,
         'task': task,
         'raw_filt': raw_filt,
-        'epochs_target': epochs_target,
+        'raw_broad': raw_broad,
+        'directional_epochs': directional_epochs,
+        'directional_erp_epochs': directional_erp_epochs,
+        'epochs_target': epochs_target_all,
         'epochs_rest': epochs_rest,
-        'epochs_erp': epochs_erp,
+        'available_directions': list(directional_epochs.keys()),
         'sfreq': raw.info['sfreq'],
-        'n_trials': len(epochs_target)
+        'n_trials_total': len(epochs_target_all),
+        'n_trials_per_direction': {k: len(v) for k, v in directional_epochs.items()}
+    }
+
+
+def get_pipelines(n_components=4):
+    return {
+        'CSP + LDA': Pipeline([
+            ('csp', CSP(n_components=n_components, reg='oas', log=True, norm_trace=False)),
+            ('lda', LinearDiscriminantAnalysis(solver='lsqr', shrinkage='auto'))
+        ]),
+        'CSP + SVM (RBF)': Pipeline([
+            ('csp', CSP(n_components=n_components, reg='oas', log=True, norm_trace=False)),
+            ('scaler', StandardScaler()),
+            ('svm', SVC(kernel='rbf', C=1.0))
+        ]),
+        'CSP + Random Forest': Pipeline([
+            ('csp', CSP(n_components=n_components, reg='oas', log=True, norm_trace=False)),
+            ('rf', RandomForestClassifier(n_estimators=100, random_state=42))
+        ]),
+        'Riemannian TS + Logistic Reg': Pipeline([
+            ('cov', RegCovariances(estimator='oas', reg=1e-3)),
+            ('ts', TangentSpace(metric='riemann')),
+            ('lr', LogisticRegression(max_iter=1000, C=1.0))
+        ]),
+        'Riemannian TS + SVM (RBF)': Pipeline([
+            ('cov', RegCovariances(estimator='oas', reg=1e-3)),
+            ('ts', TangentSpace(metric='riemann')),
+            ('scaler', StandardScaler()),
+            ('svm', SVC(kernel='rbf', C=1.0))
+        ]),
+        'Riemannian MDM': Pipeline([
+            ('cov', RegCovariances(estimator='oas', reg=1e-3)),
+            ('mdm', MDM(metric='riemann'))
+        ])
     }
 
 
@@ -315,15 +391,19 @@ def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysi
     os.makedirs(out_dir, exist_ok=True)
     bids_root = os.path.abspath(bids_root)
     
-    print("=" * 80)
-    print(" Friday Night Funkin' (FNF) Arrow Lock-On Neural Decoding Studio ".center(80, "="))
-    print("=" * 80)
+    print("=" * 85)
+    print(" Friday Night Funkin' (FNF) Arrow Lock-On Neural Decoding Studio ".center(85, "="))
+    print("=" * 85)
     
+    # Metadata for all 7 sessions
     sessions_meta = [
-        ('01', 'leftright', 'Mind (Session 1)'),
-        ('02', 'leftright', 'Mind (Session 2)'),
-        ('03', 'leftright', 'Mind (Session 3)'),
-        ('04', 'me', 'Movement (Session 4)')
+        ('01', 'leftright', 'Mind (Session 1 - Left)'),
+        ('02', 'leftright', 'Mind (Session 2 - Left)'),
+        ('03', 'leftright', 'Mind (Session 3 - Left)'),
+        ('04', 'me',        'Movement (Session 4 - Left)'),
+        ('05', 'leftright', 'Mind (Session 5 - Left)'),
+        ('06', 'leftright', 'Mind (Session 6 - Left)'),
+        ('07', 'leftright', 'Mind (Session 7 - 4 Directions: Left, Right, Up, Down)')
     ]
     
     loaded_sessions = {}
@@ -331,46 +411,15 @@ def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysi
         print(f"\n[*] Loading & Preprocessing sub-01 / ses-{ses} ({desc})...")
         s_data = load_fnf_session(bids_root, sub="01", ses=ses, task=task)
         loaded_sessions[ses] = s_data
-        print(f"    [+] Loaded {s_data['n_trials']} Target Lock-On trials & {len(s_data['epochs_rest'])} Baseline trials.")
-
-    def get_pipelines():
-        return {
-            'CSP + LDA': Pipeline([
-                ('csp', CSP(n_components=4, reg='oas', log=True, norm_trace=False)),
-                ('lda', LinearDiscriminantAnalysis(solver='lsqr', shrinkage='auto'))
-            ]),
-            'CSP + SVM (RBF)': Pipeline([
-                ('csp', CSP(n_components=4, reg='oas', log=True, norm_trace=False)),
-                ('scaler', StandardScaler()),
-                ('svm', SVC(kernel='rbf', C=1.0))
-            ]),
-            'CSP + Random Forest': Pipeline([
-                ('csp', CSP(n_components=4, reg='oas', log=True, norm_trace=False)),
-                ('rf', RandomForestClassifier(n_estimators=100, random_state=42))
-            ]),
-            'Riemannian TS + Logistic Reg': Pipeline([
-                ('cov', RegCovariances(estimator='oas', reg=1e-3)),
-                ('ts', TangentSpace(metric='riemann')),
-                ('lr', LogisticRegression(max_iter=1000, C=1.0))
-            ]),
-            'Riemannian TS + SVM (RBF)': Pipeline([
-                ('cov', RegCovariances(estimator='oas', reg=1e-3)),
-                ('ts', TangentSpace(metric='riemann')),
-                ('scaler', StandardScaler()),
-                ('svm', SVC(kernel='rbf', C=1.0))
-            ]),
-            'Riemannian MDM': Pipeline([
-                ('cov', RegCovariances(estimator='oas', reg=1e-3)),
-                ('mdm', MDM(metric='riemann'))
-            ])
-        }
+        dir_breakdown = ", ".join([f"{k}: {v}" for k, v in s_data['n_trials_per_direction'].items()])
+        print(f"    [+] Loaded {s_data['n_trials_total']} Target trials ({dir_breakdown}) & {len(s_data['epochs_rest'])} Baseline trials.")
 
     # -----------------------------------------------------------------
-    # Experiment A: Single-Session Target vs Rest Classification
+    # EXPERIMENT A: Single-Session Target vs Rest Classification (ses-01 to ses-07)
     # -----------------------------------------------------------------
-    print("\n" + "=" * 80)
-    print(" [EXPERIMENT A] Target Lock-On vs Rest/Baseline Decoding (5-Fold CV) ".center(80, "-"))
-    print("=" * 80)
+    print("\n" + "=" * 85)
+    print(" [EXPERIMENT A] Single-Session Target Lock-On vs Rest/Baseline Decoding (5-Fold CV) ".center(85, "-"))
+    print("=" * 85)
     
     results_exp_a = {}
     
@@ -384,9 +433,8 @@ def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysi
         y = np.array([1] * len(X_target) + [0] * len(X_rest))
         
         skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-        
         ses_res = {}
-        pipelines = get_pipelines()
+        pipelines = get_pipelines(n_components=4)
         for name, clf in pipelines.items():
             scores = cross_val_score(clf, X, y, cv=skf, scoring='accuracy')
             f1_scores = cross_val_score(clf, X, y, cv=skf, scoring='f1')
@@ -396,7 +444,7 @@ def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysi
                 'f1_mean': float(np.mean(f1_scores))
             }
             
-        eegnet_acc, eegnet_std = train_eval_eegnet(X, y, cv_folds=5, epochs=35, batch_size=16)
+        eegnet_acc, eegnet_std, _ = train_eval_eegnet(X, y, cv_folds=5, epochs=30, batch_size=32)
         ses_res['Deep Learning (EEGNet)'] = {
             'acc_mean': float(eegnet_acc),
             'acc_std': float(eegnet_std),
@@ -407,40 +455,139 @@ def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysi
             'description': desc,
             'n_trials_target': len(X_target),
             'n_trials_rest': len(X_rest),
+            'directions': s_data['available_directions'],
             'models': ses_res
         }
         
-        print(f"\n>>> Results for {desc} (Total: {len(X)} epochs):")
+        print(f"\n>>> Results for ses-{ses} ({desc}) [Total: {len(X)} epochs]:")
         for model_name, metrics in ses_res.items():
             print(f"    {model_name:<35}: Accuracy = {metrics['acc_mean']*100:6.2f}% ± {metrics['acc_std']*100:4.2f}% | F1 = {metrics['f1_mean']:.3f}")
 
     # -----------------------------------------------------------------
-    # Experiment B: Mind (ses-01..03) vs Movement (ses-04) Decoding
+    # EXPERIMENT B: ses-07 4-Class Directional Decoding (Left vs Right vs Up vs Down)
     # -----------------------------------------------------------------
-    print("\n" + "=" * 80)
-    print(" [EXPERIMENT B] Mind (ses-01..03) vs Movement (ses-04) Lock-On Decoding ".center(80, "-"))
-    print("=" * 80)
+    print("\n" + "=" * 85)
+    print(" [EXPERIMENT B] ses-07 4-Class Directional Decoding (Left, Right, Up, Down; Chance=25%) ".center(85, "-"))
+    print("=" * 85)
     
-    mind_target_list = [loaded_sessions[s]['epochs_target'].get_data() for s in ['01', '02', '03']]
-    X_mind = np.concatenate(mind_target_list, axis=0)
-    y_mind = np.zeros(len(X_mind), dtype=int)
+    s7 = loaded_sessions['07']
+    d_names = ['Left', 'Right', 'Up', 'Down']
+    d_arrays = [s7['directional_epochs'][d].get_data() for d in d_names]
     
-    X_move = loaded_sessions['04']['epochs_target'].get_data()
-    y_move = np.ones(len(X_move), dtype=int)
+    X_4dir = np.concatenate(d_arrays, axis=0)
+    y_4dir = np.concatenate([[i] * len(d_arrays[i]) for i in range(4)], axis=0)
     
-    X_mm = np.concatenate([X_mind, X_move], axis=0)
-    y_mm = np.concatenate([y_mind, y_move], axis=0)
+    print(f"[+] ses-07 Dataset: {len(X_4dir)} total epochs ({len(d_arrays[0])} trials per direction)")
     
-    print(f"[+] Pooled Dataset: {len(X_mm)} trials ({len(X_mind)} Mind trials, {len(X_move)} Movement trials)")
-    
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     results_exp_b = {}
-    pipelines = get_pipelines()
-    for name, clf in pipelines.items():
+    cm_dict = {}
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    
+    pipelines_4c = get_pipelines(n_components=6)
+    for name, clf in pipelines_4c.items():
+        scores = cross_val_score(clf, X_4dir, y_4dir, cv=skf, scoring='accuracy')
+        f1_scores = cross_val_score(clf, X_4dir, y_4dir, cv=skf, scoring='f1_macro')
+        preds = cross_val_predict(clf, X_4dir, y_4dir, cv=skf)
+        cm = confusion_matrix(y_4dir, preds)
+        
+        results_exp_b[name] = {
+            'acc_mean': float(np.mean(scores)),
+            'acc_std': float(np.std(scores)),
+            'f1_macro': float(np.mean(f1_scores)),
+            'confusion_matrix': cm.tolist()
+        }
+        cm_dict[name] = cm
+        print(f"    {name:<35}: Accuracy = {np.mean(scores)*100:6.2f}% ± {np.std(scores)*100:4.2f}% | F1 Macro = {np.mean(f1_scores):.3f}")
+
+    eegnet_acc_4c, eegnet_std_4c, eegnet_preds_4c = train_eval_eegnet(X_4dir, y_4dir, cv_folds=5, epochs=35, batch_size=32)
+    cm_eegnet = confusion_matrix(y_4dir, eegnet_preds_4c)
+    results_exp_b['Deep Learning (EEGNet)'] = {
+        'acc_mean': float(eegnet_acc_4c),
+        'acc_std': float(eegnet_std_4c),
+        'f1_macro': float(eegnet_acc_4c),
+        'confusion_matrix': cm_eegnet.tolist()
+    }
+    cm_dict['Deep Learning (EEGNet)'] = cm_eegnet
+    print(f"    {'Deep Learning (EEGNet)':<35}: Accuracy = {eegnet_acc_4c*100:6.2f}% ± {eegnet_std_4c*100:4.2f}%")
+
+    # -----------------------------------------------------------------
+    # EXPERIMENT C: ses-07 Pairwise Directional Decoding
+    # -----------------------------------------------------------------
+    print("\n" + "=" * 85)
+    print(" [EXPERIMENT C] ses-07 Pairwise Directional Decoding (Chance = 50%) ".center(85, "-"))
+    print("=" * 85)
+    
+    pairs = [
+        ('Left', 'Right', 'Horizontal / Lateral Motor Imagery Axis'),
+        ('Up', 'Down',     'Vertical Axis'),
+        ('Left', 'Up',     'Left vs Up'),
+        ('Left', 'Down',   'Left vs Down'),
+        ('Right', 'Up',    'Right vs Up'),
+        ('Right', 'Down',  'Right vs Down')
+    ]
+    
+    results_exp_c = {}
+    for d1, d2, pair_desc in pairs:
+        X1 = s7['directional_epochs'][d1].get_data()
+        X2 = s7['directional_epochs'][d2].get_data()
+        X_pair = np.concatenate([X1, X2], axis=0)
+        y_pair = np.array([0] * len(X1) + [1] * len(X2))
+        
+        pair_res = {}
+        pipelines_2c = get_pipelines(n_components=4)
+        for name, clf in pipelines_2c.items():
+            scores = cross_val_score(clf, X_pair, y_pair, cv=skf, scoring='accuracy')
+            f1_scores = cross_val_score(clf, X_pair, y_pair, cv=skf, scoring='f1')
+            pair_res[name] = {
+                'acc_mean': float(np.mean(scores)),
+                'acc_std': float(np.std(scores)),
+                'f1': float(np.mean(f1_scores))
+            }
+        
+        eeg_acc, eeg_std, _ = train_eval_eegnet(X_pair, y_pair, cv_folds=5, epochs=25, batch_size=16)
+        pair_res['Deep Learning (EEGNet)'] = {
+            'acc_mean': float(eeg_acc),
+            'acc_std': float(eeg_std),
+            'f1': float(eeg_acc)
+        }
+        
+        results_exp_c[f"{d1}_vs_{d2}"] = {
+            'description': pair_desc,
+            'models': pair_res
+        }
+        
+        best_model = max(pair_res.items(), key=lambda item: item[1]['acc_mean'])
+        print(f"    {d1:<6} vs {d2:<6} ({pair_desc:<38}): Best = {best_model[0]} ({best_model[1]['acc_mean']*100:5.2f}% ± {best_model[1]['acc_std']*100:4.2f}%)")
+
+    # -----------------------------------------------------------------
+    # EXPERIMENT D: Mind (All Mind Sessions) vs Movement (ses-04) Decoding
+    # -----------------------------------------------------------------
+    print("\n" + "=" * 85)
+    print(" [EXPERIMENT D] Mind (ses-01,02,03,05,06,07 Left) vs Movement (ses-04) Decoding ".center(85, "-"))
+    print("=" * 85)
+    
+    mind_left_trials = []
+    for s_idx in ['01', '02', '03', '05', '06']:
+        mind_left_trials.append(loaded_sessions[s_idx]['epochs_target'].get_data())
+    mind_left_trials.append(loaded_sessions['07']['directional_epochs']['Left'].get_data())
+    
+    X_mind_left = np.concatenate(mind_left_trials, axis=0)
+    y_mind_left = np.zeros(len(X_mind_left), dtype=int)
+    
+    X_move_left = loaded_sessions['04']['epochs_target'].get_data()
+    y_move_left = np.ones(len(X_move_left), dtype=int)
+    
+    X_mm = np.concatenate([X_mind_left, X_move_left], axis=0)
+    y_mm = np.concatenate([y_mind_left, y_move_left], axis=0)
+    
+    print(f"[+] Pooled Dataset: {len(X_mm)} trials ({len(X_mind_left)} Mind trials across 6 sessions, {len(X_move_left)} Movement trials)")
+    
+    results_exp_d = {}
+    for name, clf in get_pipelines(n_components=4).items():
         scores = cross_val_score(clf, X_mm, y_mm, cv=skf, scoring='accuracy')
         bal_acc = cross_val_score(clf, X_mm, y_mm, cv=skf, scoring='balanced_accuracy')
         f1 = cross_val_score(clf, X_mm, y_mm, cv=skf, scoring='f1')
-        results_exp_b[name] = {
+        results_exp_d[name] = {
             'acc_mean': float(np.mean(scores)),
             'acc_std': float(np.std(scores)),
             'balanced_acc': float(np.mean(bal_acc)),
@@ -448,8 +595,8 @@ def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysi
         }
         print(f"    {name:<35}: Acc = {np.mean(scores)*100:6.2f}% ± {np.std(scores)*100:4.2f}% | Bal Acc = {np.mean(bal_acc)*100:6.2f}% | F1 = {np.mean(f1):.3f}")
         
-    eegnet_acc_mm, eegnet_std_mm = train_eval_eegnet(X_mm, y_mm, cv_folds=5, epochs=40, batch_size=32)
-    results_exp_b['Deep Learning (EEGNet)'] = {
+    eegnet_acc_mm, eegnet_std_mm, _ = train_eval_eegnet(X_mm, y_mm, cv_folds=5, epochs=30, batch_size=32)
+    results_exp_d['Deep Learning (EEGNet)'] = {
         'acc_mean': float(eegnet_acc_mm),
         'acc_std': float(eegnet_std_mm),
         'balanced_acc': float(eegnet_acc_mm),
@@ -458,50 +605,45 @@ def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysi
     print(f"    {'Deep Learning (EEGNet)':<35}: Acc = {eegnet_acc_mm*100:6.2f}% ± {eegnet_std_mm*100:4.2f}%")
 
     # -----------------------------------------------------------------
-    # Experiment C: Cross-Condition / Transfer Generalization
+    # EXPERIMENT E: Cross-Session & Cross-Condition Transfer Generalization
     # -----------------------------------------------------------------
-    print("\n" + "=" * 80)
-    print(" [EXPERIMENT C] Cross-Condition Generalization & Transfer Decoding ".center(80, "-"))
-    print("=" * 80)
+    print("\n" + "=" * 85)
+    print(" [EXPERIMENT E] Cross-Session Transfer: Earlier Mind -> ses-07 Multi-Direction ".center(85, "-"))
+    print("=" * 85)
     
-    s4_t = loaded_sessions['04']['epochs_target'].get_data()
-    s4_r = loaded_sessions['04']['epochs_rest'].get_data()
-    X_test_move = np.concatenate([s4_t, s4_r], axis=0)
-    y_test_move = np.array([1]*len(s4_t) + [0]*len(s4_r))
+    # Train on ses-01..03 (Left Arrow vs Rest), Test on ses-07 Left Arrow vs Rest
+    s7_left_target = loaded_sessions['07']['directional_epochs']['Left'].get_data()
+    s7_rest_sub = loaded_sessions['07']['epochs_rest'].get_data()[:len(s7_left_target)]
+    X_test_s7_left = np.concatenate([s7_left_target, s7_rest_sub], axis=0)
+    y_test_s7_left = np.array([1]*len(s7_left_target) + [0]*len(s7_rest_sub))
     
-    mind_t_all = np.concatenate([loaded_sessions[s]['epochs_target'].get_data() for s in ['01', '02', '03']], axis=0)
-    mind_r_all = np.concatenate([loaded_sessions[s]['epochs_rest'].get_data() for s in ['01', '02', '03']], axis=0)
-    X_train_mind = np.concatenate([mind_t_all, mind_r_all], axis=0)
-    y_train_mind = np.array([1]*len(mind_t_all) + [0]*len(mind_r_all))
+    early_target = np.concatenate([loaded_sessions[s]['epochs_target'].get_data() for s in ['01', '02', '03']], axis=0)
+    early_rest = np.concatenate([loaded_sessions[s]['epochs_rest'].get_data() for s in ['01', '02', '03']], axis=0)
+    X_train_early = np.concatenate([early_target, early_rest], axis=0)
+    y_train_early = np.array([1]*len(early_target) + [0]*len(early_rest))
     
     transfer_results = {}
-    for name, clf in get_pipelines().items():
-        clf.fit(X_train_mind, y_train_mind)
-        preds_m2mov = clf.predict(X_test_move)
-        acc_m2mov = accuracy_score(y_test_move, preds_m2mov)
-        f1_m2mov = f1_score(y_test_move, preds_m2mov)
-        
-        clf.fit(X_test_move, y_test_move)
-        preds_mov2m = clf.predict(X_train_mind)
-        acc_mov2m = accuracy_score(y_train_mind, preds_mov2m)
-        f1_mov2m = f1_score(y_train_mind, preds_mov2m)
-        
+    for name, clf in get_pipelines(n_components=4).items():
+        clf.fit(X_train_early, y_train_early)
+        preds_s7 = clf.predict(X_test_s7_left)
+        acc_s7 = accuracy_score(y_test_s7_left, preds_s7)
+        f1_s7 = f1_score(y_test_s7_left, preds_s7)
         transfer_results[name] = {
-            'Mind_to_Movement_Acc': float(acc_m2mov),
-            'Mind_to_Movement_F1': float(f1_m2mov),
-            'Movement_to_Mind_Acc': float(acc_mov2m),
-            'Movement_to_Mind_F1': float(f1_mov2m)
+            'EarlyMind_to_ses07_Acc': float(acc_s7),
+            'EarlyMind_to_ses07_F1': float(f1_s7)
         }
-        print(f"    {name:<35}: Mind->Move = {acc_m2mov*100:5.2f}% | Move->Mind = {acc_mov2m*100:5.2f}%")
+        print(f"    {name:<35}: ses-01..03 -> ses-07 Left Target = {acc_s7*100:5.2f}% | F1 = {f1_s7:.3f}")
 
     # -----------------------------------------------------------------
-    # Experiment D: Visualizations & Topomaps
+    # EXPERIMENT F: Visualizations & Topomaps
     # -----------------------------------------------------------------
     print("\n[*] Generating Publication-Quality Figures & Topomaps...")
     
-    # 1. Bar Chart of Model Accuracies Across Sessions
-    fig, axes = plt.subplots(2, 2, figsize=(16, 11), dpi=150)
+    # 1. Bar Chart of Model Accuracies Across All 7 Sessions
+    fig, axes = plt.subplots(4, 2, figsize=(18, 18), dpi=150)
     axes = axes.flatten()
+    
+    colors = ['#2b5c8f', '#3470a3', '#4682b4', '#2e8b57', '#3cb371', '#20b2aa', '#d9534f']
     
     for idx, (ses, task, desc) in enumerate(sessions_meta):
         ax = axes[idx]
@@ -510,102 +652,156 @@ def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysi
         accs = [m_dict[n]['acc_mean'] * 100 for n in names]
         stds = [m_dict[n]['acc_std'] * 100 for n in names]
         
-        colors = ['#2b5c8f', '#3470a3', '#4682b4', '#2e8b57', '#3cb371', '#20b2aa', '#d9534f']
         bars = ax.barh(names, accs, xerr=stds, color=colors[:len(names)], alpha=0.88, capsize=4, edgecolor='black')
         ax.axvline(50.0, color='gray', linestyle='--', linewidth=1.5, label='Chance (50%)')
-        ax.set_xlim(30, 105)
-        ax.set_xlabel("Cross-Validation Accuracy (%)", fontsize=11, fontweight='bold')
-        ax.set_title(f"{desc} (sub-01 / ses-{ses})\nTarget Lock-On vs Baseline", fontsize=12, fontweight='bold')
+        ax.set_xlim(35, 105)
+        ax.set_xlabel("Cross-Validation Accuracy (%)", fontsize=10, fontweight='bold')
+        ax.set_title(f"sub-01 / ses-{ses}: {desc}\nTarget Lock-On vs Baseline", fontsize=11, fontweight='bold')
         ax.grid(axis='x', alpha=0.3, linestyle=':')
         
         for bar, acc, std in zip(bars, accs, stds):
-            ax.text(acc + 1.5, bar.get_y() + bar.get_height()/2, f"{acc:.1f}%", va='center', fontsize=9, fontweight='bold')
+            ax.text(acc + 1.2, bar.get_y() + bar.get_height()/2, f"{acc:.1f}%", va='center', fontsize=8, fontweight='bold')
             
+    # 8th subplot: Summary of Best Model Accuracy Per Session
+    ax_sum = axes[7]
+    ses_labels = [f"ses-{s}\n({loaded_sessions[s]['n_trials_total']} tr)" for s, _, _ in sessions_meta]
+    best_accs = [max([results_exp_a[s]['models'][m]['acc_mean'] * 100 for m in results_exp_a[s]['models']]) for s, _, _ in sessions_meta]
+    bar_cols = ['#2b5c8f']*3 + ['#d9534f'] + ['#2b5c8f']*3
+    bars_sum = ax_sum.bar(ses_labels, best_accs, color=bar_cols, alpha=0.9, edgecolor='black')
+    ax_sum.axhline(50.0, color='gray', linestyle='--', linewidth=1.5, label='Chance (50%)')
+    ax_sum.set_ylim(40, 105)
+    ax_sum.set_ylabel("Peak Accuracy (%)", fontsize=10, fontweight='bold')
+    ax_sum.set_title("Peak BCI Decoding Across All 7 Sessions\n(Blue = Mind/MI, Red = Movement/ME)", fontsize=11, fontweight='bold')
+    ax_sum.grid(axis='y', alpha=0.3, linestyle=':')
+    for bar, val in zip(bars_sum, best_accs):
+        ax_sum.text(bar.get_x() + bar.get_width()/2, val + 1.5, f"{val:.1f}%", ha='center', fontsize=9, fontweight='bold')
+        
     plt.tight_layout()
-    fig1_path = os.path.join(out_dir, "fnf_session_decoding_benchmark.png")
+    fig1_path = os.path.join(out_dir, "fnf_all_sessions_decoding_benchmark.png")
     plt.savefig(fig1_path, bbox_inches='tight')
     plt.close()
-    print(f"[+] Saved Session Benchmark Figure to: {fig1_path}")
+    print(f"[+] Saved All Sessions Benchmark Figure to: {fig1_path}")
     
-    # 2. Mind vs Movement ERD/ERS Topomaps and Power Spectral Density
-    fig, (ax_psd, ax_topo1, ax_topo2) = plt.subplots(1, 3, figsize=(18, 5), dpi=150)
+    # 2. ses-07 4-Class Directional Decoding & Confusion Matrix
+    fig, (ax_bar4, ax_cm, ax_pair) = plt.subplots(1, 3, figsize=(20, 6), dpi=150)
     
-    raw_mind = loaded_sessions['03']['epochs_erp']
-    raw_move = loaded_sessions['04']['epochs_erp']
+    # Left: 4-Class Model Accuracies
+    m_names_4c = list(results_exp_b.keys())
+    accs_4c = [results_exp_b[m]['acc_mean'] * 100 for m in m_names_4c]
+    stds_4c = [results_exp_b[m]['acc_std'] * 100 for m in m_names_4c]
     
-    ch_idx_c3 = raw_mind.ch_names.index('C3')
+    bars4 = ax_bar4.barh(m_names_4c, accs_4c, xerr=stds_4c, color=colors[:len(m_names_4c)], alpha=0.88, capsize=4, edgecolor='black')
+    ax_bar4.axvline(25.0, color='red', linestyle='--', linewidth=1.5, label='Chance (25%)')
+    ax_bar4.set_xlim(15, 80)
+    ax_bar4.set_xlabel("4-Class Accuracy (%)", fontsize=11, fontweight='bold')
+    ax_bar4.set_title("ses-07: 4-Direction Decoding\n(Left vs Right vs Up vs Down - 612 Trials)", fontsize=12, fontweight='bold')
+    ax_bar4.grid(axis='x', alpha=0.3, linestyle=':')
+    ax_bar4.legend(loc='lower right', fontsize=9)
+    for bar, val in zip(bars4, accs_4c):
+        ax_bar4.text(val + 1.2, bar.get_y() + bar.get_height()/2, f"{val:.1f}%", va='center', fontsize=9, fontweight='bold')
+
+    # Middle: Confusion Matrix for Best Model (or Tangent Space + LR / EEGNet)
+    best_4c_name = max(results_exp_b.items(), key=lambda item: item[1]['acc_mean'])[0]
+    best_cm = np.array(results_exp_b[best_4c_name]['confusion_matrix'])
+    best_cm_norm = best_cm.astype('float') / best_cm.sum(axis=1)[:, np.newaxis] * 100
     
-    data_mind_c3 = raw_mind.get_data()[:, ch_idx_c3, :]
-    data_move_c3 = raw_move.get_data()[:, ch_idx_c3, :]
-    
-    f_mind, psd_mind = signal.welch(data_mind_c3, fs=250.0, nperseg=128, axis=-1)
-    f_move, psd_move = signal.welch(data_move_c3, fs=250.0, nperseg=128, axis=-1)
-    
-    mean_psd_mind = np.mean(psd_mind, axis=0)
-    mean_psd_move = np.mean(psd_move, axis=0)
-    
-    mask = (f_mind >= 4) & (f_mind <= 40)
-    ax_psd.plot(f_mind[mask], 10*np.log10(mean_psd_mind[mask]), label='Mind (Motor Imagery)', color='#2b5c8f', linewidth=2.5)
-    ax_psd.plot(f_move[mask], 10*np.log10(mean_psd_move[mask]), label='Movement (Motor Execution)', color='#d9534f', linewidth=2.5)
-    ax_psd.axvspan(8, 12, color='#f1c40f', alpha=0.2, label='Mu Band (8-12 Hz)')
-    ax_psd.axvspan(13, 30, color='#2ecc71', alpha=0.2, label='Beta Band (13-30 Hz)')
-    ax_psd.set_title("Power Spectral Density @ C3 (Sensorimotor)", fontsize=12, fontweight='bold')
-    ax_psd.set_xlabel("Frequency (Hz)", fontsize=11)
-    ax_psd.set_ylabel("Power (dB)", fontsize=11)
-    ax_psd.grid(True, alpha=0.3)
-    ax_psd.legend(fontsize=9)
-    
-    psd_mind_all = []
-    psd_move_all = []
-    for ch_i in range(len(raw_mind.ch_names)):
-        _, p_m = signal.welch(raw_mind.get_data()[:, ch_i, :], fs=250.0, nperseg=128, axis=-1)
-        _, p_v = signal.welch(raw_move.get_data()[:, ch_i, :], fs=250.0, nperseg=128, axis=-1)
-        mu_mask = (f_mind >= 8) & (f_mind <= 12)
-        psd_mind_all.append(np.mean(p_m[:, mu_mask]))
-        psd_move_all.append(np.mean(p_v[:, mu_mask]))
-        
-    mne.viz.plot_topomap(np.array(psd_mind_all), raw_mind.info, axes=ax_topo1, show=False, cmap='RdBu_r')
-    ax_topo1.set_title("Mind: Mu Band (8-12 Hz) Power", fontsize=11, fontweight='bold')
-    
-    mne.viz.plot_topomap(np.array(psd_move_all), raw_move.info, axes=ax_topo2, show=False, cmap='RdBu_r')
-    ax_topo2.set_title("Movement: Mu Band (8-12 Hz) Power", fontsize=11, fontweight='bold')
-    
-    fig2_path = os.path.join(out_dir, "fnf_mind_vs_movement_spectral_topomap.png")
+    im = ax_cm.imshow(best_cm_norm, cmap='Blues', vmin=0, vmax=100)
+    ax_cm.set_xticks(range(4))
+    ax_cm.set_yticks(range(4))
+    ax_cm.set_xticklabels(DIRECTIONS, fontsize=10, fontweight='bold')
+    ax_cm.set_yticklabels(DIRECTIONS, fontsize=10, fontweight='bold')
+    ax_cm.set_xlabel("Predicted Direction", fontsize=11, fontweight='bold')
+    ax_cm.set_ylabel("True Direction", fontsize=11, fontweight='bold')
+    ax_cm.set_title(f"Confusion Matrix ({best_4c_name})\nTotal: 612 Trials (153/class)", fontsize=12, fontweight='bold')
+    for i in range(4):
+        for j in range(4):
+            val_txt = f"{best_cm[i, j]}\n({best_cm_norm[i, j]:.1f}%)"
+            text_color = "white" if best_cm_norm[i, j] > 50 else "black"
+            ax_cm.text(j, i, val_txt, ha='center', va='center', color=text_color, fontsize=9, fontweight='bold')
+    plt.colorbar(im, ax=ax_cm, fraction=0.046, pad=0.04, label="Percentage (%)")
+
+    # Right: Pairwise Accuracies
+    pair_labels = [k.replace('_vs_', ' vs ') for k in results_exp_c.keys()]
+    pair_accs = [max([v['models'][m]['acc_mean']*100 for m in v['models']]) for v in results_exp_c.values()]
+    bars_p = ax_pair.bar(pair_labels, pair_accs, color='#3470a3', alpha=0.9, edgecolor='black')
+    ax_pair.axhline(50.0, color='gray', linestyle='--', linewidth=1.5, label='Chance (50%)')
+    ax_pair.set_ylim(40, 95)
+    ax_pair.set_xticklabels(pair_labels, rotation=35, ha='right', fontsize=9)
+    ax_pair.set_ylabel("Peak Pairwise Accuracy (%)", fontsize=11, fontweight='bold')
+    ax_pair.set_title("ses-07: Direction Pairwise Accuracies\n(Peak Classifier per Pair)", fontsize=12, fontweight='bold')
+    ax_pair.grid(axis='y', alpha=0.3, linestyle=':')
+    for bar, val in zip(bars_p, pair_accs):
+        ax_pair.text(bar.get_x() + bar.get_width()/2, val + 1.2, f"{val:.1f}%", ha='center', fontsize=9, fontweight='bold')
+
+    plt.tight_layout()
+    fig2_path = os.path.join(out_dir, "fnf_ses07_4direction_decoding_and_cm.png")
     plt.savefig(fig2_path, bbox_inches='tight')
     plt.close()
-    print(f"[+] Saved Spectral Topomap Figure to: {fig2_path}")
+    print(f"[+] Saved ses-07 4-Direction Figure to: {fig2_path}")
 
-    # 3. Grand-Average Evoked Potentials (ERP) Time-Locked to Arrow HitZone
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10), dpi=150)
-    channels_to_plot = ['C3', 'Cz', 'C4', 'Oz']
+    # 3. ses-07 Cortical Topomaps across 4 Directions & Lateralization (Mu & Beta)
+    fig, axes = plt.subplots(2, 4, figsize=(18, 9), dpi=150)
+    raw_s7 = s7['directional_erp_epochs']
     
-    times_erp = raw_mind.times * 1000  # in ms
-    for ax, ch_name in zip(axes.flatten(), channels_to_plot):
-        ch_i = raw_mind.ch_names.index(ch_name)
-        erp_mind_mean = np.mean(raw_mind.get_data()[:, ch_i, :], axis=0) * 1e6  # uV
-        erp_mind_sem = stats.sem(raw_mind.get_data()[:, ch_i, :], axis=0) * 1e6
+    # Compute Mu (8-12 Hz) and Beta (13-30 Hz) Power per direction across all channels
+    topo_data = {'Mu': {}, 'Beta': {}}
+    info_s7 = raw_s7['Left'].info
+    
+    for d in DIRECTIONS:
+        ep_data = raw_s7[d].get_data()  # (n_trials, n_ch, n_times)
+        f_axis, psd_all = signal.welch(ep_data, fs=250.0, nperseg=128, axis=-1)
         
-        erp_move_mean = np.mean(raw_move.get_data()[:, ch_i, :], axis=0) * 1e6
-        erp_move_sem = stats.sem(raw_move.get_data()[:, ch_i, :], axis=0) * 1e6
+        mu_mask = (f_axis >= 8) & (f_axis <= 12)
+        beta_mask = (f_axis >= 13) & (f_axis <= 30)
         
-        ax.plot(times_erp, erp_mind_mean, label='Mind (MI)', color='#2b5c8f', linewidth=2.0)
-        ax.fill_between(times_erp, erp_mind_mean - erp_mind_sem, erp_mind_mean + erp_mind_sem, color='#2b5c8f', alpha=0.15)
+        topo_data['Mu'][d] = np.mean(psd_all[:, :, mu_mask], axis=(0, 2))
+        topo_data['Beta'][d] = np.mean(psd_all[:, :, beta_mask], axis=(0, 2))
         
-        ax.plot(times_erp, erp_move_mean, label='Movement (ME)', color='#d9534f', linewidth=2.0)
-        ax.fill_between(times_erp, erp_move_mean - erp_move_sem, erp_move_mean + erp_move_sem, color='#d9534f', alpha=0.15)
+    for i, d in enumerate(DIRECTIONS):
+        ax_mu = axes[0, i]
+        mne.viz.plot_topomap(topo_data['Mu'][d], info_s7, axes=ax_mu, show=False, cmap='RdBu_r')
+        ax_mu.set_title(f"Mu (8-12 Hz): {d} Arrow", fontsize=11, fontweight='bold')
         
-        ax.axvline(0, color='black', linestyle='--', linewidth=1.2, label='Arrow HitZone (t=0)')
-        ax.set_title(f"Channel {ch_name} ERP Response", fontsize=11, fontweight='bold')
+        ax_beta = axes[1, i]
+        mne.viz.plot_topomap(topo_data['Beta'][d], info_s7, axes=ax_beta, show=False, cmap='viridis')
+        ax_beta.set_title(f"Beta (13-30 Hz): {d} Arrow", fontsize=11, fontweight='bold')
+        
+    plt.suptitle("ses-07 Cortical Power Topographies Across 4 Arrow Directions (153 trials/dir)", fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    fig3_path = os.path.join(out_dir, "fnf_ses07_directional_topomaps.png")
+    plt.savefig(fig3_path, bbox_inches='tight')
+    plt.close()
+    print(f"[+] Saved ses-07 Directional Topomaps to: {fig3_path}")
+
+    # 4. Grand-Average Evoked Potentials (ERP) for 4 Directions
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), dpi=150)
+    key_channels = ['C3', 'Cz', 'C4', 'Oz']
+    dir_colors = {'Left': '#2b5c8f', 'Right': '#d9534f', 'Up': '#2e8b57', 'Down': '#e67e22'}
+    
+    times_erp = raw_s7['Left'].times * 1000  # in ms
+    for ax, ch_name in zip(axes.flatten(), key_channels):
+        ch_idx = raw_s7['Left'].ch_names.index(ch_name)
+        
+        for d in DIRECTIONS:
+            ep_ch = raw_s7[d].get_data()[:, ch_idx, :] * 1e6  # uV
+            mean_wave = np.mean(ep_ch, axis=0)
+            sem_wave = stats.sem(ep_ch, axis=0)
+            
+            ax.plot(times_erp, mean_wave, label=f"{d} Arrow", color=dir_colors[d], linewidth=2.0)
+            ax.fill_between(times_erp, mean_wave - sem_wave, mean_wave + sem_wave, color=dir_colors[d], alpha=0.12)
+            
+        ax.axvline(0, color='black', linestyle='--', linewidth=1.2, label='HitZone (t=0)')
+        ax.set_title(f"Electrode {ch_name} ERP Response (ses-07)", fontsize=11, fontweight='bold')
         ax.set_xlabel("Time relative to HitZone (ms)", fontsize=10)
         ax.set_ylabel("Amplitude (µV)", fontsize=10)
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=8, loc='upper right')
         
     plt.tight_layout()
-    fig3_path = os.path.join(out_dir, "fnf_arrow_hitzone_erp_waveforms.png")
-    plt.savefig(fig3_path, bbox_inches='tight')
+    fig4_path = os.path.join(out_dir, "fnf_ses07_erp_waveforms.png")
+    plt.savefig(fig4_path, bbox_inches='tight')
     plt.close()
-    print(f"[+] Saved ERP Waveforms Figure to: {fig3_path}")
+    print(f"[+] Saved ses-07 ERP Waveforms to: {fig4_path}")
 
     # -----------------------------------------------------------------
     # Export Final Metrics JSON
@@ -613,18 +809,23 @@ def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysi
     final_report = {
         'bids_root': bids_root,
         'dataset_summary': {
-            'ses-01': {'mode': 'Mind (Motor Imagery)', 'task': 'leftright', 'target_trials': loaded_sessions['01']['n_trials']},
-            'ses-02': {'mode': 'Mind (Motor Imagery)', 'task': 'leftright', 'target_trials': loaded_sessions['02']['n_trials']},
-            'ses-03': {'mode': 'Mind (Motor Imagery)', 'task': 'leftright', 'target_trials': loaded_sessions['03']['n_trials']},
-            'ses-04': {'mode': 'Movement (Motor Execution)', 'task': 'me', 'target_trials': loaded_sessions['04']['n_trials']},
+            f"ses-{s}": {
+                'mode': 'Movement (Motor Execution)' if s == '04' else 'Mind (Motor Imagery)',
+                'task': loaded_sessions[s]['task'],
+                'total_trials': loaded_sessions[s]['n_trials_total'],
+                'directions': loaded_sessions[s]['n_trials_per_direction']
+            } for s, _, _ in sessions_meta
         },
         'experiment_a_target_vs_rest': results_exp_a,
-        'experiment_b_mind_vs_movement': results_exp_b,
-        'experiment_c_transfer_generalization': transfer_results,
+        'experiment_b_ses07_4direction_decoding': results_exp_b,
+        'experiment_c_ses07_pairwise_decoding': results_exp_c,
+        'experiment_d_mind_vs_movement': results_exp_d,
+        'experiment_e_transfer_generalization': transfer_results,
         'artifacts': {
-            'session_benchmark_plot': fig1_path,
-            'spectral_topomap_plot': fig2_path,
-            'erp_waveforms_plot': fig3_path
+            'all_sessions_benchmark_plot': fig1_path,
+            'ses07_4direction_benchmark_plot': fig2_path,
+            'ses07_directional_topomaps_plot': fig3_path,
+            'ses07_erp_waveforms_plot': fig4_path
         }
     }
     
@@ -632,9 +833,9 @@ def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysi
     with open(json_path, 'w') as f:
         json.dump(final_report, f, indent=4)
     print(f"\n[+] Saved Complete Metrics Report to: {json_path}")
-    print("=" * 80)
-    print(" FNF BCI Analysis Completed Successfully! ".center(80, "="))
-    print("=" * 80)
+    print("=" * 85)
+    print(" FNF BCI Multi-Session & Multi-Direction Analysis Completed Successfully! ".center(85, "="))
+    print("=" * 85)
     
     return final_report
 

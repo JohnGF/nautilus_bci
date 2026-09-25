@@ -23,6 +23,7 @@ dependencies = [
     "pefile>=2024.8.26",
     "pyserial>=3.5",
     "pypdf>=6.16.2",
+    "seaborn>=0.13.2",
 ]
 
 [project.optional-dependencies]
