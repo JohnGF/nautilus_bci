@@ -1,6 +1,6 @@
 # BCI Tower Defense — Rhythm Decoding Training Studio & Real-Time Bridge
 
-Esta pasta (`nautilus_bci/scripts/Training`) contém a suíte completa de treino de modelos para descodificação de ritmos mentais (4 classes: **FIRE**, **WATER**, **WIND**, **ELECTRICITY**) no jogo **Tower Defense BCI**.
+Esta pasta (`nautilus_bci/scripts/training`) contém a suíte completa de treino de modelos para descodificação de ritmos mentais (4 classes: **FIRE**, **WATER**, **WIND**, **ELECTRICITY**) no jogo **Tower Defense BCI**.
 
 Permite selecionar os datasets BIDS (com diferentes músicas e salas de gravação), escolher os sujeitos e sessões a incluir no treino, treinar com qualquer um dos 10 algoritmos de descodificação com validação cruzada estratificada (5-fold CV), guardar os artefactos do modelo e iniciar imediatamente a pipeline de tempo real ligada ao Godot.
 
@@ -12,11 +12,11 @@ Para abrir a interface gráfica interativa:
 
 ```bash
 # A partir do diretório raiz do nautilus_bci ou da pasta Training:
-uv run python scripts/Training/train_and_run.py
+uv run python scripts/training/train_and_run.py
 ```
 *(ou diretamente)*:
 ```bash
-uv run python scripts/Training/gui.py
+uv run python scripts/training/gui.py
 ```
 
 ### Funcionalidades da Interface Gráfica:
@@ -51,27 +51,27 @@ Também podes correr o treino de forma headless ou automatizada via terminal:
 
 #### 1. Treinar com Riemannian Tangent Space numa única sessão:
 ```bash
-uv run python scripts/Training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses 05 --alg riemann_logreg
+uv run python scripts/training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses 05 --alg riemann_logreg
 ```
 
 #### 2. Treinar acumulando múltiplas sessões (ex: todas as sessões do sub-02):
 ```bash
-uv run python scripts/Training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses 01,02,03,04,05 --alg riemann_logreg
+uv run python scripts/training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses 01,02,03,04,05 --alg riemann_logreg
 ```
 
 #### 3. Treinar com o dataset antigo (músicas clássicas originais):
 ```bash
-uv run python scripts/Training/train_and_run.py --dataset "bids_tower_defense(old)" --sub 01 --ses 01,02,03 --alg fbcsp_logreg
+uv run python scripts/training/train_and_run.py --dataset "bids_tower_defense(old)" --sub 01 --ses 01,02,03 --alg fbcsp_logreg
 ```
 
 #### 4. Correr Benchmark de todos os algoritmos e selecionar o melhor:
 ```bash
-uv run python scripts/Training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses all --alg all
+uv run python scripts/training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses all --alg all
 ```
 
 #### 5. Treinar e arrancar logo a pipeline em tempo real com o simulador:
 ```bash
-uv run python scripts/Training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses 05 --alg riemann_logreg --run-pipeline --source simulator --mode bids_replay
+uv run python scripts/training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses 05 --alg riemann_logreg --run-pipeline --source simulator --mode bids_replay
 ```
 
 ---
