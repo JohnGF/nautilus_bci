@@ -22,6 +22,20 @@ Welcome to the **Nautilus BCI** project. This is a comprehensive Python suite fo
 
 ---
 
+## 🧭 Find Your Task
+
+| I want to… | Start here | First command |
+|---|---|---|
+| **Collect data** — record new EEG/BIDS sessions | [Control-panel guide](scripts/README.md) · [Beginner's guide](docs/guides/getting_started_bci_guide.md) | `cd scripts && uv run python run_bci_suite.py` |
+| **Process data** — turn recordings into features & figures | [`scripts/analysis/`](scripts/analysis/) · [Dataset docs](scripts/bids_clean/README.md) | `cd scripts && uv run python analysis/analyze_bids_dataset.py --sub 01 --ses 02` (outputs → `results/`) |
+| **Classify data** — train & compare models on the published BIDS sets | [Training studio](scripts/training/README.md) (10 algorithms) · [Published datasets](scripts/bids_clean/README.md) | `cd scripts && uv run python training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses all --alg all` |
+| **Run inference** — use pretrained models in real time | [Models & inferencer](models/README.md) | see `AssistiveBCIInferencer` snippet below |
+| **Browse outputs** — figures, reports, science notes | [`results/`](results/) · [`docs/`](docs/) | — |
+
+> AI coding agents: start at [`AGENTS.md`](AGENTS.md) (repo map, path rules, verification checklist).
+
+---
+
 ## ⚡ Core Features
 
 - **32-Channel Dry EEG Streaming**: Fast 2-minute application with zero conductive gel and zero cleanup via g.Nautilus C++ to LSL bridge.
