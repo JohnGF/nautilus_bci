@@ -13,10 +13,10 @@ Welcome to the **Nautilus BCI** project. This is a comprehensive Python suite fo
 
 ## 📖 Documentation & Guides
 
-- [Assistive BCI Clinical & Technical Guide](docs/ASSISTIVE_BCI_GUIDE.md) *(Pure MI protocol, HCI false-positive safeguards, & online adaptation)*
+- [Assistive BCI Clinical & Technical Guide](docs/guides/ASSISTIVE_BCI_GUIDE.md) *(Pure MI protocol, HCI false-positive safeguards, & online adaptation)*
 - [Clean BIDS Standard & Dataset Directory](scripts/bids_clean/README.md)
-- [Beginner's Guide & System Architecture](docs/getting_started_bci_guide.md)
-- [BCI Signal Processing & Riemannian Manifolds](docs/bci_signal_processing.md)
+- [Beginner's Guide & System Architecture](docs/guides/getting_started_bci_guide.md)
+- [BCI Signal Processing & Riemannian Manifolds](docs/guides/bci_signal_processing.md)
 - [Pretrained Models & Real-Time Inference](models/README.md)
 - [Scripts Directory Documentation](scripts/README.md)
 
