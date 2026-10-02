@@ -51,8 +51,9 @@ def discover_music_subfolders(music_dir):
 
 def generate_music_tracks(sound_dir, selected_subfolder='real'):
     """Dynamically load audio tracks from any discovered subfolder."""
-    music_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "music_tracks"))
-    config_file = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "music_offset_config.json"))
+    from utils.paths import ASSETS_MUSIC, SCRIPTS_DIR  # assets/ live at repo root
+    music_dir = ASSETS_MUSIC
+    config_file = os.path.abspath(os.path.join(SCRIPTS_DIR, "music_offset_config.json"))
 
     saved_offsets = {}
     if os.path.exists(config_file):
@@ -142,7 +143,8 @@ class MusicMemoryTaskApp(BaseTaskApp):
         self.setWindowTitle("BCI 6-Track Music Memory Recall Paradigm")
         self.resize(1080, 800)
 
-        self.sound_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "music_tracks"))
+        from utils.paths import ASSETS_MUSIC  # assets/ live at repo root
+        self.sound_dir = ASSETS_MUSIC
         self.track_catalog = generate_music_tracks(self.sound_dir)
         self.bids_root = "bids_dataset_multimodal"
 

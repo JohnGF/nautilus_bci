@@ -1,0 +1,4 @@
+session_id	acq_time	recording_date	location	task_name	activity_type	stimulus_paradigm	cap_installation	impedance_notes	experimental_notes	hardware_montage	recommended_for_analysis	pruning_rationale
+ses-01	2026-09-09T10:00:00	2026-09-09	Lab Station 2	leftrightupdown	rhythm_game_intent	directional_arrows_4class	installation_1_sub03	nominal_impedance	4-direction FNF rhythm game calibration 1	dry_electrodes_32ch	True	Baseline calibration 1 (dry pins)
+ses-02	2026-09-10T09:30:00	2026-09-10	Lab Station 2	leftrightupdown	rhythm_game_intent	directional_arrows_4class	installation_2_distinct_day	nominal_impedance	4-direction FNF rhythm game calibration 2	dry_electrodes_32ch	True	Distinct day dry pin installation
+ses-03	2026-09-10T14:15:00	2026-09-10	Lab Station 2	leftrightupdown	rhythm_game_intent	directional_arrows_4class	installation_3_post_break	nominal_impedance	4-direction FNF rhythm game calibration 3	dry_electrodes_32ch	True	Post-break calibration run

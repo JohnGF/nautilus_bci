@@ -1,25 +1,29 @@
-# Project Documentation & Beginner's Guide
+# Project Documentation
 
-This directory contains technical documentation for the `nautilus_bci` project, covering signal processing theory, experimental task paradigms, and dataset storage standards.
+This directory consolidates all `nautilus_bci` documentation:
+
+- `guides/` — beginner guides: system overview, BIDS standard, signal-processing theory.
+- `science-notes/` — experiment notes, milestones, and music-perception/transfer findings.
+- `vendor-manuals/` — third-party hardware manuals (g.tec, Unicorn) for reference only.
 
 ---
 
 ## Recommended Reading Path for Beginners
 
-### Step 1: Beginner's Guide & Codebase Map (`getting_started_bci_guide.md`)
+### Step 1: Beginner's Guide & Codebase Map (`guides/getting_started_bci_guide.md`)
 - High-level introduction to BCI concept, signal acquisition, and real-time streaming.
 - Diagram of the 5-stage system architecture (Sensors -> LSL Bridges -> Tasks -> BIDS Recorders -> ML Decoding).
 - Direct reference map linking every key script to its role in the `scripts/` folder.
 - Quickstart batch file execution guide.
 
-### Step 2: BIDS Dataset Standard & Usage (`bids_standard_and_usage.md`)
+### Step 2: BIDS Dataset Standard & Usage (`guides/bids_standard_and_usage.md`)
 - Introduction to the Brain Imaging Data Structure (BIDS) specification.
 - Directory hierarchy, European Data Format (EDF) continuous recordings, JSON metadata sidecars, and TSV event tables.
 - Real-time multimodal LSL stream polling (`gNautilus` EEG, `Smartwatch_IMU`, `Smartwatch_PPG`).
 - Time-stamping, MNE `RawArray` construction, and automated BIDS dataset exporting via `multimodal_bids_recorder.py`.
 - Dataset loading and analysis using `analyze_bids_dataset.py`.
 
-### Step 3: BCI Signal Processing Theory (`bci_signal_processing.md`)
+### Step 3: BCI Signal Processing Theory (`guides/bci_signal_processing.md`)
 - Plain English intuition explanations for newcomers on CSP and LDA.
 - Detailed mathematical formulations for Common Spatial Patterns (CSP) spatial filtering.
 - Derivation of Linear Discriminant Analysis (LDA) decision hyperplanes.
@@ -29,7 +33,7 @@ This directory contains technical documentation for the `nautilus_bci` project, 
 ---
 
 ## Experimental Hardware Manuals
-Hardware user manuals and datasheets for g.tec amplifiers, electrode positioning caps, and smartwatch streaming setups are located in the top-level project folder:
-- `manuals/g.Nautilus PRO Manual.pdf`
-- `manuals/g.Nautilus research Manual.pdf`
-- `manuals/g.NEEDaccess API Manual.pdf`
+Hardware user manuals and datasheets for g.tec amplifiers, electrode grids, and sensors live in `vendor-manuals/`, e.g.:
+- `vendor-manuals/g.Nautilus PRO Instructions for Use 1.25.02.pdf`
+- `vendor-manuals/g.Sensor 8fNIRS Instructions for Use 1.20.01.pdf`
+- `vendor-manuals/g.Sensors Utilities Instructions for Use 1.25.01.pdf`

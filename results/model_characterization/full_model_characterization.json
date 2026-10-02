@@ -1,0 +1,97 @@
+{
+  "statistical_significance": {
+    "true_accuracy": 0.3340659340659341,
+    "null_mean": 0.25468864468864466,
+    "null_95th_percentile": 0.3478571428571428,
+    "p_value": 0.09271523178807947
+  },
+  "class_separability": {
+    "confusion_matrix": [
+      [
+        4,
+        1,
+        6,
+        5
+      ],
+      [
+        5,
+        4,
+        5,
+        4
+      ],
+      [
+        4,
+        4,
+        7,
+        4
+      ],
+      [
+        1,
+        1,
+        6,
+        8
+      ]
+    ],
+    "macro_f1": 0.3275986950405555,
+    "per_class_recall": {
+      "FIRE": 0.25,
+      "WATER": 0.2222222222222222,
+      "WIND": 0.3684210526315789,
+      "ELECTRICITY": 0.5
+    }
+  },
+  "temporal_latency_and_itr": {
+    "0.5s": {
+      "duration_s": 0.5,
+      "accuracy": 0.2912087912087912,
+      "itr_bits_per_min": 0.7577887465433886
+    },
+    "1.0s": {
+      "duration_s": 1.0,
+      "accuracy": 0.2615384615384615,
+      "itr_bits_per_min": 0.030425034836523146
+    },
+    "1.5s": {
+      "duration_s": 1.5,
+      "accuracy": 0.27472527472527475,
+      "itr_bits_per_min": 0.09212277641686306
+    },
+    "2.0s": {
+      "duration_s": 2.0,
+      "accuracy": 0.2615384615384615,
+      "itr_bits_per_min": 0.015212517418261573
+    },
+    "2.5s": {
+      "duration_s": 2.5,
+      "accuracy": 0.2912087912087912,
+      "itr_bits_per_min": 0.15155774930867771
+    },
+    "3.0s": {
+      "duration_s": 3.0,
+      "accuracy": 0.3340659340659341,
+      "itr_bits_per_min": 0.5098556858488879
+    }
+  },
+  "electrode_dropout_resilience": {
+    "drop_0_channels": {
+      "dropped_count": 0,
+      "channels_remaining": 33,
+      "accuracy": 0.3340659340659341
+    },
+    "drop_2_channels": {
+      "dropped_count": 2,
+      "channels_remaining": 31,
+      "accuracy": 0.34835164835164834
+    },
+    "drop_4_channels": {
+      "dropped_count": 4,
+      "channels_remaining": 29,
+      "accuracy": 0.33406593406593404
+    },
+    "drop_8_channels": {
+      "dropped_count": 8,
+      "channels_remaining": 25,
+      "accuracy": 0.34835164835164834
+    }
+  }
+}

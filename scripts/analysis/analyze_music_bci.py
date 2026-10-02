@@ -21,7 +21,10 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 
 
-def analyze_music_bci(bids_root="bids_dataset", subject_id="01", session_id="04", task_name="leftright", out_dir="analysis_results"):
+def analyze_music_bci(bids_root="bids_dataset", subject_id="01", session_id="04", task_name="leftright", out_dir=None):
+    if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis_results/)
+        from utils.paths import RESULTS_DIR
+        out_dir = RESULTS_DIR
     print("=" * 75)
     print(" BCI Music Memory & Auditory Imagery EEG Analysis Studio ".center(75, "="))
     print("=" * 75)
@@ -201,7 +204,7 @@ def main():
     parser.add_argument("--sub", type=str, default="01", help="Subject ID (e.g., 01)")
     parser.add_argument("--ses", type=str, default="04", help="Session ID (e.g., 04)")
     parser.add_argument("--task", type=str, default="leftright", help="Task name")
-    parser.add_argument("--outdir", type=str, default="analysis_results", help="Directory to save figures")
+    parser.add_argument("--outdir", type=str, default=None, help="Directory to save figures (default: repo-root results/)")
     args = parser.parse_args()
 
     analyze_music_bci(

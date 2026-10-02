@@ -38,6 +38,9 @@ if _ws_dir not in sys.path:
 if _script_dir not in sys.path:
     sys.path.insert(0, _script_dir)
 
+# Repo-root results/ (reorg: results/ <- scripts/analysis_results/)
+_TD_RECALL_RESULTS = os.path.join(_ws_dir, "results", "tower_defense_recall")
+
 # Machine Learning Imports
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
@@ -1106,7 +1109,7 @@ def run_tower_defense_rhythm_analysis(
     bids_root="scripts/bids/bids_tower_defense,scripts/bids/bids_tower_defense_6_3_27",
     sub_id="01",
     ses_id="all",
-    out_dir="scripts/analysis_results/tower_defense_recall",
+    out_dir=_TD_RECALL_RESULTS,
     win_len_s=3.0,
     n_splits=5
 ):
@@ -1450,7 +1453,7 @@ if __name__ == "__main__":
     parser.add_argument("--bids-root", type=str, default="scripts/bids/bids_tower_defense,scripts/bids/bids_tower_defense_6_3_27", help="Path to BIDS dataset")
     parser.add_argument("--sub", type=str, default="01", help="Subject ID (e.g., '01')")
     parser.add_argument("--ses", type=str, default="all", help="Session ID ('all', '01', '01,02,03'...)")
-    parser.add_argument("--out-dir", type=str, default="scripts/analysis_results/tower_defense_recall", help="Output directory")
+    parser.add_argument("--out-dir", type=str, default=_TD_RECALL_RESULTS, help="Output directory")
     parser.add_argument("--win-len", type=float, default=3.0, help="Epoch duration in seconds")
     parser.add_argument("--n-splits", type=int, default=5, help="Number of CV folds")
     

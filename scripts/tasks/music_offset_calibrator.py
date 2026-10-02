@@ -42,8 +42,9 @@ class MusicOffsetCalibratorApp(BaseTaskApp):
         self.setWindowTitle("🎵 Music Offset & Tempo Calibrator (Looping Companion Studio)")
         self.resize(750, 600)
 
-        self.music_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "music_tracks"))
-        self.config_file = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "music_offset_config.json"))
+        from utils.paths import ASSETS_MUSIC, SCRIPTS_DIR  # assets/ live at repo root
+        self.music_dir = ASSETS_MUSIC
+        self.config_file = os.path.abspath(os.path.join(SCRIPTS_DIR, "music_offset_config.json"))
 
         self.offsets_db = self.load_saved_offsets()
 

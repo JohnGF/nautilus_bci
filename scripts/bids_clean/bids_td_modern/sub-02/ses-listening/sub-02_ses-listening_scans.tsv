@@ -1,0 +1,5 @@
+filename	acq_time	recording_date	location	activity_type	cap_installation	notes
+eeg/sub-02_ses-listening_task-listenItsRainingMen_run-01_eeg.vhdr	2026-09-10T10:00:00	2026-09-10	Lab Room B	continuous_passive_listening	installation_1_sub02	Continuous passive listening: listenItsRainingMen (Water element acoustic prior)
+eeg/sub-02_ses-listening_task-listenWhatsUp_run-02_eeg.vhdr	2026-09-10T10:00:00	2026-09-10	Lab Room B	continuous_passive_listening	installation_1_sub02	Continuous passive listening: listenWhatsUp (Wind element acoustic prior)
+eeg/sub-02_ses-listening_task-listenThunderstruck_run-03_eeg.vhdr	2026-09-10T10:00:00	2026-09-10	Lab Room B	continuous_passive_listening	installation_1_sub02	Continuous passive listening: listenThunderstruck (Electricity element acoustic prior)
+eeg/sub-02_ses-listening_task-listenKiss_run-04_eeg.vhdr	2026-09-10T10:00:00	2026-09-10	Lab Room B	continuous_passive_listening	installation_1_sub02	Continuous passive listening: listenKiss (Fire element acoustic prior)

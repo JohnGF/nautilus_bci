@@ -339,8 +339,10 @@ def benchmark_perception_aware_models(X_music, y_music, X_td, y_td, n_splits=5):
 def run_music_aware_pipeline(
     td_bids_root="scripts/bids_tower_defense",
     music_bids_root="scripts/bids_music",
-    out_dir="scripts/analysis_results/music_aware_tower_defense"
+    out_dir=None
 ):
+    if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis_results/)
+        out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "music_aware_tower_defense")
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 85)

@@ -16,10 +16,21 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 def run_comparison(
-    ses01_json="scripts/analysis_results/tower_defense_recall/comparison_run/ses-01/sub-01_ses-01/rhythm_decoding_summary.json",
-    ses02_json="scripts/analysis_results/tower_defense_recall/comparison_run/ses-02/sub-01_ses-02/rhythm_decoding_summary.json",
-    out_dir="scripts/analysis_results/tower_defense_recall/comparison_run"
+    ses01_json=None,
+    ses02_json=None,
+    out_dir=None
 ):
+    # Repo-root results/ (reorg: results/ <- scripts/analysis_results/)
+    _comparison_dir = os.path.join(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+        "results", "tower_defense_recall", "comparison_run",
+    )
+    if out_dir is None:
+        out_dir = _comparison_dir
+    if ses01_json is None:
+        ses01_json = os.path.join(_comparison_dir, "ses-01", "sub-01_ses-01", "rhythm_decoding_summary.json")
+    if ses02_json is None:
+        ses02_json = os.path.join(_comparison_dir, "ses-02", "sub-01_ses-02", "rhythm_decoding_summary.json")
     os.makedirs(out_dir, exist_ok=True)
     with open(ses01_json, "r", encoding="utf-8") as f:
         s1 = json.load(f)

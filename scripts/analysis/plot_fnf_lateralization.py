@@ -60,7 +60,9 @@ def load_clean_epochs(bids_root, ses, task, l_freq=8.0, h_freq=30.0):
     return epochs
 
 
-def generate_lateralization_maps(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysis/analysis_results_fnf"):
+def generate_lateralization_maps(bids_root="scripts/bids/bids_fnf", out_dir=None):
+    if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis/analysis_results_fnf/)
+        out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "analysis_results_fnf")
     os.makedirs(out_dir, exist_ok=True)
     bids_root = os.path.abspath(bids_root)
     

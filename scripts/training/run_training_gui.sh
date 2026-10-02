@@ -12,6 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Candidate virtual environments in priority order
 CAND_VENVS=(
+    "${SCRIPT_DIR}/../../games/tower-defense-bci/python/.venv/bin/python"
+    "${SCRIPT_DIR}/../../../games/tower-defense-bci/python/.venv/bin/python"
     "${SCRIPT_DIR}/../../../tower-defense-bci/python/.venv/bin/python"
     "${SCRIPT_DIR}/../../tower-defense-bci/python/.venv/bin/python"
     "/home/guilhermecoto/Documentos/Lasige/tower-defense-bci/python/.venv/bin/python"

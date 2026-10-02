@@ -1,0 +1,25 @@
+{
+  "model_family": "EEGNet-8,2 & Hierarchical Riemannian",
+  "channels": 33,
+  "sampling_rate_hz": 250.0,
+  "epoch_duration_s": 3.0,
+  "epoch_samples": 750,
+  "classes": {
+    "0": "FIRE (Kiss / Energy)",
+    "1": "WATER (It's Raining Men / Nature)",
+    "2": "WIND (What's Up / Nature)",
+    "3": "ELECTRICITY (Thunderstruck / Energy)"
+  },
+  "hierarchical_tree": {
+    "root": "Energy (0, 3) vs Nature (1, 2)",
+    "energy_subtree": "Fire (0) vs Electricity (3)",
+    "nature_subtree": "Water (1) vs Wind (2)"
+  },
+  "evidence_accumulation": {
+    "window_size_s": 2.0,
+    "step_size_s": 0.5,
+    "default_confidence_threshold": 0.8,
+    "max_accumulation_steps": 3
+  },
+  "hardware_montage": "dry_electrodes_32ch"
+}

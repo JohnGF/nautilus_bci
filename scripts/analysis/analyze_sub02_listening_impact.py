@@ -275,7 +275,7 @@ def evaluate_pairwise(X, y, class_names=CLASS_NAMES):
     return pw_results
 
 def main():
-    out_dir = "scripts/analysis_results/listening_sub02_impact"
+    out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "listening_sub02_impact")
     os.makedirs(out_dir, exist_ok=True)
     print("=" * 80)
     print(" SUB-02: PURE MUSIC LISTENING ANALYSIS & TOWER DEFENSE TRANSFER STUDIO ".center(80, "="))

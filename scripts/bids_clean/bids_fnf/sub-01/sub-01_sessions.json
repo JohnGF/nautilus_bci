@@ -1,0 +1,32 @@
+{
+    "session_id": {
+        "Description": "Unique session identifier for the recording session."
+    },
+    "acq_time": {
+        "Description": "Timestamp when the acquisition began."
+    },
+    "recording_date": {
+        "Description": "Calendar date of the recording."
+    },
+    "location": {
+        "Description": "Physical environment / room where the recording took place."
+    },
+    "task_name": {
+        "Description": "BIDS task identifier entity."
+    },
+    "activity_type": {
+        "Description": "Specific cognitive / sensory activity performed by participant."
+    },
+    "stimulus_paradigm": {
+        "Description": "Acoustic or visual stimulus protocol used."
+    },
+    "cap_installation": {
+        "Description": "Cap placement identifier indicating whether cap was reinstalled or gel adjusted."
+    },
+    "impedance_notes": {
+        "Description": "Electrode contact and impedance status."
+    },
+    "experimental_notes": {
+        "Description": "Scientific context, performance benchmarks, and protocol notes."
+    }
+}

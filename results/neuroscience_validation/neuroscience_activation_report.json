@@ -1,0 +1,115 @@
+{
+  "roi_spectral_profiles": {
+    "Auditory Association (STG)": {
+      "mu_power": 2.421613178138586e-12,
+      "beta_power": 1.0678328143677004e-12,
+      "theta_power": 4.704784823263132e-12,
+      "channels": [
+        "T7",
+        "T8",
+        "FT9",
+        "FT10",
+        "TP9",
+        "TP10"
+      ]
+    },
+    "SMA & Premotor (Rhythm)": {
+      "mu_power": 2.3817825887104793e-12,
+      "beta_power": 1.0414979594923137e-12,
+      "theta_power": 4.125515496969624e-12,
+      "channels": [
+        "Cz",
+        "FC1",
+        "FC2",
+        "FC5",
+        "FC6",
+        "C3",
+        "C4"
+      ]
+    },
+    "Frontal Working Memory": {
+      "mu_power": 2.6209882953444716e-12,
+      "beta_power": 1.087625405350884e-12,
+      "theta_power": 7.974962970563647e-12,
+      "channels": [
+        "Fz",
+        "F3",
+        "F4",
+        "F7",
+        "F8"
+      ]
+    },
+    "Parietal Integration": {
+      "mu_power": 1.8570143177034944e-12,
+      "beta_power": 8.129057043787046e-13,
+      "theta_power": 3.606881774227902e-12,
+      "channels": [
+        "Pz",
+        "P3",
+        "P4",
+        "CP1",
+        "CP2"
+      ]
+    },
+    "Occipital Control (Visual)": {
+      "mu_power": 2.9045253143213177e-12,
+      "beta_power": 1.0603412749342085e-12,
+      "theta_power": 7.137618914633911e-12,
+      "channels": [
+        "O1",
+        "O2",
+        "Oz"
+      ]
+    }
+  },
+  "top_decoding_electrodes": [
+    {
+      "rank": 1,
+      "channel": "P7",
+      "location": "Cortical scalp site",
+      "weight": 4.023267110120033e-06
+    },
+    {
+      "rank": 2,
+      "channel": "Oz",
+      "location": "Cortical scalp site",
+      "weight": 2.4095766446229387e-06
+    },
+    {
+      "rank": 3,
+      "channel": "F7",
+      "location": "Cortical scalp site",
+      "weight": 2.3819448569808795e-06
+    },
+    {
+      "rank": 4,
+      "channel": "TP10",
+      "location": "Cortical scalp site",
+      "weight": 2.2375184665901296e-06
+    },
+    {
+      "rank": 5,
+      "channel": "F8",
+      "location": "Cortical scalp site",
+      "weight": 2.1244472689898235e-06
+    },
+    {
+      "rank": 6,
+      "channel": "CP2",
+      "location": "Centroparietal (Sensorimotor Integration)",
+      "weight": 2.1097271818414757e-06
+    },
+    {
+      "rank": 7,
+      "channel": "CP6",
+      "location": "Cortical scalp site",
+      "weight": 2.0684552198629394e-06
+    },
+    {
+      "rank": 8,
+      "channel": "TP9",
+      "location": "Cortical scalp site",
+      "weight": 2.0187586759941958e-06
+    }
+  ]
+}

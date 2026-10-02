@@ -40,7 +40,7 @@ Ablation Dimensions Evaluated:
      - TD_1 (76 trials), TD_2 (76 trials), Joint Pooled (152 trials), and Cross-Session Transfer
 
 All results, CSV metrics, JSON benchmarks, confusion matrices, and publication figures
-are saved to `analyzes_results/eeg_ablation/` and `scripts/analyzes_results/eeg_ablation/`.
+are saved to `results/eeg_ablation/`.
 """
 
 import os
@@ -95,10 +95,10 @@ from torch.utils.data import DataLoader, TensorDataset
 # Internal modules
 from spatial_filters import detect_bad_channels, apply_spatial_filter
 
-# Output directories
+# Output directory (repo-root results/; reorg merged analyzes_results/ + scripts/analyzes_results/)
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUTPUT_DIRS = [
-    os.path.abspath("analyzes_results/eeg_ablation"),
-    os.path.abspath("scripts/analyzes_results/eeg_ablation"),
+    os.path.join(_REPO_ROOT, "results", "eeg_ablation"),
 ]
 for out_dir in OUTPUT_DIRS:
     os.makedirs(out_dir, exist_ok=True)
@@ -886,7 +886,7 @@ def run_full_eeg_ablation_study():
             f.write("- `eeg_channel_reduction_curve.png`\n")
             f.write("- `eeg_single_channel_ranking.png`\n")
 
-    print(f"\n[+] Successfully saved all EEG Ablation results to {OUTPUT_DIRS[0]} and {OUTPUT_DIRS[1]}")
+    print(f"\n[+] Successfully saved all EEG Ablation results to {OUTPUT_DIRS[0]}")
     return all_results
 
 

@@ -1,0 +1,11 @@
+{
+    "Name": "Tower Defense BCI - Modern Pop/Rock Paradigm (Subject 2)",
+    "BIDSVersion": "1.8.0",
+    "DatasetType": "raw",
+    "License": "CC-BY-4.0",
+    "Authors": [
+        "JohnGF",
+        "BCI Research Team"
+    ],
+    "Description": "Self-contained Tower Defense active recall sessions (Songs IIWT) and 4-song consolidated passive listening prior for Subject 2."
+}

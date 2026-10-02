@@ -1,0 +1,11 @@
+{
+    "Name": "Tower Defense BCI - Classical Music Paradigm (Subject 1)",
+    "BIDSVersion": "1.8.0",
+    "DatasetType": "raw",
+    "License": "CC-BY-4.0",
+    "Authors": [
+        "JohnGF",
+        "BCI Research Team"
+    ],
+    "Description": "Self-contained Tower Defense active spell recall sessions and continuous classical music listening prior for Subject 1."
+}

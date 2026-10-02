@@ -90,8 +90,9 @@ class LeftRightTaskApp(BaseTaskApp):
         self.setWindowTitle("BCI All-In-One Motor Imagery Suite (Top, Bottom, Left, Right)")
         self.resize(1080, 820)
 
-        # Sound Effects & Cue Generation Setup
-        self.sound_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "sounds"))
+        # Sound Effects & Cue Generation Setup (assets/ live at repo root — see utils.paths)
+        from utils.paths import ASSETS_SOUNDS
+        self.sound_dir = ASSETS_SOUNDS
         self.cue_files = generate_cue_wavs(self.sound_dir)
 
         # LSL Marker Outlet setup
@@ -107,7 +108,10 @@ class LeftRightTaskApp(BaseTaskApp):
         self.cue_player.setAudioOutput(self.cue_audio)
         self.cue_audio.setVolume(0.95)
 
+        from utils.paths import SCRIPTS_DIR
         self.audio_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "brain_rhythm_audio.wav"))
+        if not os.path.exists(self.audio_path):  # fallback: file lives in scripts/
+            self.audio_path = os.path.abspath(os.path.join(SCRIPTS_DIR, "brain_rhythm_audio.wav"))
         if os.path.exists(self.audio_path):
             self.music_player.setSource(QUrl.fromLocalFile(self.audio_path))
             self.music_player.setLoops(QMediaPlayer.Infinite)

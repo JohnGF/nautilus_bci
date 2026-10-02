@@ -1,0 +1,2 @@
+filename	acq_time	recording_date	location	activity_type	cap_installation	notes
+eeg/sub-01_ses-listening_task-classicallistening_eeg.vhdr	2026-09-02T16:00:00	2026-09-02	Lab Station 1	continuous_passive_listening	installation_8_distinct_day	Continuous classical music listening session used as Riemannian reference manifold prior

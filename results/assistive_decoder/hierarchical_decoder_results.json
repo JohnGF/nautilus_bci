@@ -1,0 +1,16 @@
+{
+  "sub02_ses03": {
+    "single_epoch_mean": 0.3626373626373626,
+    "accumulated_mean": 0.3340659340659341,
+    "confirmed_mean": 0.4206349206349206,
+    "confirmed_rate": 0.5780219780219781,
+    "avg_steps": 2.4057971014492754
+  },
+  "sub02_golden_pooled": {
+    "single_epoch_mean": 0.3875222816399287,
+    "accumulated_mean": 0.3928698752228164,
+    "confirmed_mean": 0.4096320346320346,
+    "confirmed_rate": 0.6664884135472371,
+    "avg_steps": 2.386904761904762
+  }
+}

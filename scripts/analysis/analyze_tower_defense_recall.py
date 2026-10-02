@@ -39,6 +39,12 @@ if _parent_dir not in sys.path:
 if _script_dir not in sys.path:
     sys.path.insert(0, _script_dir)
 
+# Repo-root results/ (reorg: results/ <- scripts/analysis_results/)
+_TD_RECALL_RESULTS = os.path.join(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+    "results", "tower_defense_recall",
+)
+
 import mne
 from mne_bids import BIDSPath, read_raw_bids
 from mne.decoding import CSP
@@ -335,7 +341,7 @@ def run_tower_defense_session_analysis(
     session_id="02",
     task=None,
     condition="all",
-    out_dir="scripts/analysis_results/tower_defense_recall",
+    out_dir=_TD_RECALL_RESULTS,
     recall_tmin=0.5,
     recall_tmax=4.5,
     blink_tmin=0.5,
@@ -728,7 +734,7 @@ def run_all_sessions_tower_defense_analysis(
     bids_root="scripts/bids_tower_defense",
     subject_id="01",
     sessions=("01", "02", "03", "04"),
-    out_dir="scripts/analysis_results/tower_defense_recall"
+    out_dir=_TD_RECALL_RESULTS
 ):
     print("\n" + "#" * 80)
     print(" MULTI-SESSION TOWER DEFENSE RECALL & MEMORY BENCHMARK ".center(80, "#"))
@@ -840,7 +846,7 @@ def run_combined_sessions_analysis(
     subject_id="01",
     sessions=("01", "02"),
     condition="all",
-    out_dir="scripts/analysis_results/tower_defense_recall",
+    out_dir=_TD_RECALL_RESULTS,
     recall_tmin=0.5,
     recall_tmax=4.5,
     spatial_filter="robust_car"
@@ -1177,7 +1183,7 @@ if __name__ == "__main__":
     parser.add_argument("--ses", type=str, default="all", help="Session ID ('01', '02', '03', '04', '01+02', or 'all')")
     parser.add_argument("--combine", type=str, default=None, help="Comma-separated sessions to pool together (e.g. '01,02')")
     parser.add_argument("--condition", type=str, default="all", choices=["all", "recall", "memory"], help="Condition filter ('all', 'recall', 'memory')")
-    parser.add_argument("--out-dir", type=str, default="scripts/analysis_results/tower_defense_recall", help="Output directory")
+    parser.add_argument("--out-dir", type=str, default=_TD_RECALL_RESULTS, help="Output directory")
     parser.add_argument("--recall-tmin", type=float, default=0.5, help="Recall epoch start relative to box stop blinking (s)")
     parser.add_argument("--recall-tmax", type=float, default=4.5, help="Recall epoch end relative to box stop blinking (s)")
     parser.add_argument("--blink-tmin", type=float, default=0.5, help="Blink epoch start relative to box start blinking (s)")

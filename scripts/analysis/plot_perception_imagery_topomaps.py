@@ -5,7 +5,7 @@ Generates publication-quality 32-channel topomaps and STG spectral entrainment p
   1. Topographic power maps across Theta (4-8 Hz), Alpha (8-12 Hz), and Beta (13-30 Hz).
   2. Compares Pure Auditory Perception (Full Music) vs Mental Imagery (Tower Defense).
   3. Computes Superior Temporal Gyrus (T7/T8) vs Sensorimotor (C3/C4) power curves.
-  4. Saves multi-panel figures to scripts/analysis_results/music_aware_tower_defense/
+  4. Saves multi-panel figures to results/music_aware_tower_defense/
 """
 
 import os
@@ -23,8 +23,10 @@ from analyze_music_aware_tower_defense import get_music_listening_data, get_towe
 
 
 def generate_perception_imagery_topomaps(
-    out_dir="scripts/analysis_results/music_aware_tower_defense"
+    out_dir=None
 ):
+    if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis_results/)
+        out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "music_aware_tower_defense")
     os.makedirs(out_dir, exist_ok=True)
     print("=" * 80)
     print(" GENERATING PERCEPTION VS IMAGERY TOPOGRAPHIC MAPS ".center(80, "="))

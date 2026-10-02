@@ -196,7 +196,7 @@ def run_pairwise_anova_analysis(bids_root="bids_musica", subject_id="01", sessio
             anova_results[band_name] = (0.0, 1.0)
 
     # 4. Save and Print Executive Markdown Report
-    report_file = os.path.abspath("analysis_results/pairwise_anova_report.md")
+    report_file = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "pairwise_anova_report.md")
     os.makedirs(os.path.dirname(report_file), exist_ok=True)
     
     with open(report_file, 'w', encoding='utf-8') as f:

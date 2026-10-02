@@ -20,7 +20,10 @@ from mne.decoding import CSP
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 
-def analyze_dataset(bids_root="bids_dataset", subject_id="01", session_id="01", task_name="leftright", out_dir="analysis_results"):
+def analyze_dataset(bids_root="bids_dataset", subject_id="01", session_id="01", task_name="leftright", out_dir=None):
+    if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis_results/)
+        from utils.paths import RESULTS_DIR
+        out_dir = RESULTS_DIR
     print("=" * 70)
     print(" BCI Motor Imagery & Music Condition Analysis ".center(70, "="))
     print("=" * 70)
@@ -249,7 +252,7 @@ def main():
     parser.add_argument("--bids-root", type=str, default="bids_dataset", help="Path to BIDS dataset root")
     parser.add_argument("--sub", type=str, default="01", help="Subject ID (e.g., 01)")
     parser.add_argument("--ses", type=str, default="01", help="Session ID (e.g., 01)")
-    parser.add_argument("--outdir", type=str, default="analysis_results", help="Directory to save figures")
+    parser.add_argument("--outdir", type=str, default=None, help="Directory to save figures (default: repo-root results/)")
     args = parser.parse_args()
 
     analyze_dataset(bids_root=args.bids_root, subject_id=args.sub, session_id=args.ses, out_dir=args.outdir)

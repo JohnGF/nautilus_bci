@@ -1,0 +1,58 @@
+Brain Vision Data Exchange Header File Version 1.0
+; Written using pybv 0.8.1
+
+[Common Infos]
+Codepage=UTF-8
+DataFile=sub-01_ses-01_task-recall_eeg.eeg
+MarkerFile=sub-01_ses-01_task-recall_eeg.vmrk
+DataFormat=BINARY
+; Data orientation: MULTIPLEXED=ch1,pt1, ch2,pt1 ...
+DataOrientation=MULTIPLEXED
+NumberOfChannels=33
+; Sampling interval in microseconds
+SamplingInterval=4000.0
+
+[Binary Infos]
+BinaryFormat=IEEE_FLOAT_32
+
+[Channel Infos]
+; Each entry: Ch<Channel number>=<Name>,<Reference channel name>,
+; <Resolution in "Unit">,<Unit>, Future extensions..
+; Fields are delimited by commas, some fields might be omitted (empty).
+; Commas in channel names are coded as "\1".
+Ch1=EEG001,,0.1,µV
+Ch2=EEG002,,0.1,µV
+Ch3=EEG003,,0.1,µV
+Ch4=EEG004,,0.1,µV
+Ch5=EEG005,,0.1,µV
+Ch6=EEG006,,0.1,µV
+Ch7=EEG007,,0.1,µV
+Ch8=EEG008,,0.1,µV
+Ch9=EEG009,,0.1,µV
+Ch10=EEG010,,0.1,µV
+Ch11=EEG011,,0.1,µV
+Ch12=EEG012,,0.1,µV
+Ch13=EEG013,,0.1,µV
+Ch14=EEG014,,0.1,µV
+Ch15=EEG015,,0.1,µV
+Ch16=EEG016,,0.1,µV
+Ch17=EEG017,,0.1,µV
+Ch18=EEG018,,0.1,µV
+Ch19=EEG019,,0.1,µV
+Ch20=EEG020,,0.1,µV
+Ch21=EEG021,,0.1,µV
+Ch22=EEG022,,0.1,µV
+Ch23=EEG023,,0.1,µV
+Ch24=EEG024,,0.1,µV
+Ch25=EEG025,,0.1,µV
+Ch26=EEG026,,0.1,µV
+Ch27=EEG027,,0.1,µV
+Ch28=EEG028,,0.1,µV
+Ch29=EEG029,,0.1,µV
+Ch30=EEG030,,0.1,µV
+Ch31=EEG031,,0.1,µV
+Ch32=EEG032,,0.1,µV
+Ch33=EEG033,,0.1,µV
+
+[Comment]
+

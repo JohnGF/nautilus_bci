@@ -31,9 +31,13 @@ def _ensure_environment():
     except ImportError:
         _here = Path(__file__).resolve().parent
         cand_venvs = [
+            _here.parent.parent / "games" / "tower-defense-bci" / "python" / ".venv" / "bin" / "python",
+            _here.parent.parent.parent / "games" / "tower-defense-bci" / "python" / ".venv" / "bin" / "python",
             _here.parent.parent.parent / "tower-defense-bci" / "python" / ".venv" / "bin" / "python",
             _here.parent.parent / "tower-defense-bci" / "python" / ".venv" / "bin" / "python",
             Path("/home/guilhermecoto/Documentos/Lasige/tower-defense-bci/python/.venv/bin/python"),
+            _here.parent.parent / "games" / "tower-defense-bci" / "python" / ".venv" / "Scripts" / "python.exe",
+            _here.parent.parent.parent / "games" / "tower-defense-bci" / "python" / ".venv" / "Scripts" / "python.exe",
             _here.parent.parent.parent / "tower-defense-bci" / "python" / ".venv" / "Scripts" / "python.exe",
             _here.parent.parent / "tower-defense-bci" / "python" / ".venv" / "Scripts" / "python.exe",
             Path(r"c:\Users\guilh\Desktop\Lasige\tower-defense-bci\python\.venv\Scripts\python.exe")
@@ -77,9 +81,14 @@ def find_tower_defense_dirs():
                 candidates.append(p / "python")
 
     # 2. Submodule inside nautilus_bci (e.g. nautilus_bci/tower-defense-bci/python)
-    submod = _current_dir.parent.parent / "tower-defense-bci" / "python"
+    submod = _current_dir.parent.parent / "games" / "tower-defense-bci" / "python"
     if (submod / "main.py").exists():
         candidates.append(submod.resolve())
+
+    # Legacy location (pre-reorg): nautilus_bci/tower-defense-bci/python
+    legacy_submod = _current_dir.parent.parent / "tower-defense-bci" / "python"
+    if (legacy_submod / "main.py").exists():
+        candidates.append(legacy_submod.resolve())
 
     # 3. Sibling next to nautilus_bci (e.g. Lasige/tower-defense-bci/python)
     sibling = _current_dir.parent.parent.parent / "tower-defense-bci" / "python"
@@ -99,9 +108,12 @@ def find_tower_defense_dirs():
     # 5. Search upwards from _current_dir
     p = _current_dir.resolve()
     while p != p.parent:
-        c1 = p / "tower-defense-bci" / "python"
+        c1 = p / "games" / "tower-defense-bci" / "python"
         if (c1 / "main.py").exists():
             candidates.append(c1.resolve())
+        c1_legacy = p / "tower-defense-bci" / "python"
+        if (c1_legacy / "main.py").exists():
+            candidates.append(c1_legacy.resolve())
         p = p.parent
 
     # 6. Fallback known standard locations
@@ -127,8 +139,11 @@ def get_primary_tower_defense_dir():
     """Returns the primary tower-defense-bci/python directory, prioritizing existing virtualenvs."""
     dirs = find_tower_defense_dirs()
     if not dirs:
-        submod = _current_dir.parent.parent / "tower-defense-bci" / "python"
-        return submod if submod.exists() else (_current_dir.parent.parent.parent / "tower-defense-bci" / "python")
+        submod = _current_dir.parent.parent / "games" / "tower-defense-bci" / "python"
+        if submod.exists():
+            return submod
+        legacy = _current_dir.parent.parent / "tower-defense-bci" / "python"
+        return legacy if legacy.exists() else (_current_dir.parent.parent.parent / "games" / "tower-defense-bci" / "python")
 
     for d in dirs:
         if (d / ".venv" / "bin" / "python").exists() or (d / ".venv" / "Scripts" / "python.exe").exists():

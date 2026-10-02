@@ -93,10 +93,10 @@ class VideoDatasetTaskApp(BaseTaskApp):
         self.setWindowTitle("BCI Video Dataset Presentation Suite")
         self.resize(1080, 840)
 
-        # Default paths
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        self.video_dir = os.path.abspath(os.path.join(base_dir, "videos"))
-        self.audio_dir = os.path.abspath(os.path.join(self.video_dir, "audio"))
+        # Default paths (assets/ live at repo root — see utils.paths)
+        from utils.paths import ASSETS_VIDEOS, ASSETS_VIDEO_AUDIO
+        self.video_dir = ASSETS_VIDEOS
+        self.audio_dir = ASSETS_VIDEO_AUDIO
         self.norm_cache_dir = os.path.abspath(os.path.join(self.audio_dir, "normalized"))
         
         os.makedirs(self.video_dir, exist_ok=True)

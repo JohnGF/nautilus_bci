@@ -1,9 +1,0 @@
-{
-  "Multimodal_Gated_Net_Accuracy": 20.0,
-  "Multimodal_Gated_Net_Std": 9.185586535436919,
-  "Learned_Weights": {
-    "w_EEG": 0.9995530843734741,
-    "w_PPG": 0.0002404000551905483,
-    "w_IMU": 0.00020641248556785285
-  }
-}

@@ -1,0 +1,303 @@
+{
+    "TD_Imagine": {
+        "title": "Tower Defense - Silent Elemental Imagery (4-Class)",
+        "n_samples": 400,
+        "n_classes": 4,
+        "cv_accuracy": 0.27999999999999997,
+        "cv_std": 0.04444097208657795,
+        "balanced_accuracy": 0.28036786711211525,
+        "macro_f1": 0.28007173166296223,
+        "capacity_overfit": 0.8725,
+        "empirical_chance": 0.24779999999999996,
+        "empirical_chance_std": 0.027136875280695087,
+        "ci_95": [
+            0.1975,
+            0.2944375
+        ],
+        "p_value": 0.13725490196078433,
+        "confusion_matrix": [
+            [
+                20,
+                28,
+                25,
+                24
+            ],
+            [
+                29,
+                27,
+                27,
+                24
+            ],
+            [
+                26,
+                19,
+                34,
+                22
+            ],
+            [
+                28,
+                21,
+                15,
+                31
+            ]
+        ]
+    },
+    "TD_Listen": {
+        "title": "Tower Defense - Auditory Stimulus Elemental (4-Class)",
+        "n_samples": 396,
+        "n_classes": 4,
+        "cv_accuracy": 0.255126582278481,
+        "cv_std": 0.029864029848656957,
+        "balanced_accuracy": 0.2545895003114889,
+        "macro_f1": 0.2563855769132965,
+        "capacity_overfit": 0.8434343434343434,
+        "empirical_chance": 0.24574683544303796,
+        "empirical_chance_std": 0.024426551644723894,
+        "ci_95": [
+            0.21203243670886077,
+            0.2947223101265823
+        ],
+        "p_value": 0.29411764705882354,
+        "confusion_matrix": [
+            [
+                26,
+                19,
+                22,
+                30
+            ],
+            [
+                21,
+                29,
+                34,
+                24
+            ],
+            [
+                15,
+                22,
+                22,
+                37
+            ],
+            [
+                22,
+                20,
+                29,
+                24
+            ]
+        ]
+    },
+    "TD_Sham_Rest": {
+        "title": "Tower Defense - Sham Baseline (Rest Epochs)",
+        "n_samples": 407,
+        "n_classes": 4,
+        "cv_accuracy": 0.2751580849141825,
+        "cv_std": 0.03212036719744315,
+        "balanced_accuracy": 0.2761913978827622,
+        "macro_f1": 0.27644973009600843,
+        "capacity_overfit": 0.8157248157248157,
+        "empirical_chance": 0.24543872327612168,
+        "empirical_chance_std": 0.027622184671214026,
+        "ci_95": [
+            0.198725534477567,
+            0.28989837398373985
+        ],
+        "p_value": 0.13725490196078433,
+        "confusion_matrix": [
+            [
+                29,
+                20,
+                20,
+                30
+            ],
+            [
+                25,
+                27,
+                14,
+                29
+            ],
+            [
+                24,
+                24,
+                30,
+                25
+            ],
+            [
+                20,
+                36,
+                28,
+                26
+            ]
+        ]
+    },
+    "FNF_Imagine": {
+        "title": "FNF - Silent Directional Imagery (4-Class)",
+        "n_samples": 1786,
+        "n_classes": 4,
+        "cv_accuracy": 0.5946058870475565,
+        "cv_std": 0.03163351872887065,
+        "balanced_accuracy": 0.5906452160008121,
+        "macro_f1": 0.5853893276979428,
+        "capacity_overfit": 0.6142217245240762,
+        "empirical_chance": 0.24655161729496272,
+        "empirical_chance_std": 0.01402107645547438,
+        "ci_95": [
+            0.2218020671955933,
+            0.2747020875389262
+        ],
+        "p_value": 0.0196078431372549,
+        "confusion_matrix": [
+            [
+                399,
+                137,
+                54,
+                49
+            ],
+            [
+                18,
+                204,
+                86,
+                76
+            ],
+            [
+                9,
+                86,
+                232,
+                78
+            ],
+            [
+                1,
+                65,
+                65,
+                227
+            ]
+        ]
+    },
+    "FNF_Listen": {
+        "title": "FNF - Auditory Stimulus Directional (4-Class)",
+        "n_samples": 1255,
+        "n_classes": 4,
+        "cv_accuracy": 0.5697211155378485,
+        "cv_std": 0.016329802017465523,
+        "balanced_accuracy": 0.568353499753595,
+        "macro_f1": 0.5651373477459514,
+        "capacity_overfit": 0.6031872509960159,
+        "empirical_chance": 0.24914741035856572,
+        "empirical_chance_std": 0.015976395661408346,
+        "ci_95": [
+            0.22179282868525899,
+            0.27868525896414337
+        ],
+        "p_value": 0.0196078431372549,
+        "confusion_matrix": [
+            [
+                223,
+                40,
+                47,
+                59
+            ],
+            [
+                26,
+                119,
+                70,
+                69
+            ],
+            [
+                18,
+                44,
+                181,
+                82
+            ],
+            [
+                2,
+                29,
+                54,
+                192
+            ]
+        ]
+    },
+    "FNF_Central_Motor": {
+        "title": "FNF - Motor Imagery (Central/Frontal Channels Only)",
+        "n_samples": 1786,
+        "n_classes": 4,
+        "cv_accuracy": 0.3863277154437194,
+        "cv_std": 0.021349641237592906,
+        "balanced_accuracy": 0.3973073312213615,
+        "macro_f1": 0.3813353718544424,
+        "capacity_overfit": 0.3919372900335946,
+        "empirical_chance": 0.24550202650892758,
+        "empirical_chance_std": 0.01929481114117638,
+        "ci_95": [
+            0.21744425144359422,
+            0.2887031907735161
+        ],
+        "p_value": 0.0196078431372549,
+        "confusion_matrix": [
+            [
+                200,
+                179,
+                148,
+                112
+            ],
+            [
+                56,
+                225,
+                42,
+                61
+            ],
+            [
+                65,
+                158,
+                154,
+                28
+            ],
+            [
+                96,
+                100,
+                51,
+                111
+            ]
+        ]
+    },
+    "FNF_Occipital_Visual": {
+        "title": "FNF - Motor Imagery (Parietal/Occipital Channels Only)",
+        "n_samples": 1786,
+        "n_classes": 4,
+        "cv_accuracy": 0.513969610190445,
+        "cv_std": 0.04033400346178546,
+        "balanced_accuracy": 0.5085631918732375,
+        "macro_f1": 0.505961242148472,
+        "capacity_overfit": 0.5347144456886898,
+        "empirical_chance": 0.24442717869270614,
+        "empirical_chance_std": 0.016060180601361555,
+        "ci_95": [
+            0.22297658169413015,
+            0.2838342487833122
+        ],
+        "p_value": 0.0196078431372549,
+        "confusion_matrix": [
+            [
+                359,
+                99,
+                112,
+                69
+            ],
+            [
+                13,
+                169,
+                111,
+                91
+            ],
+            [
+                13,
+                142,
+                176,
+                74
+            ],
+            [
+                2,
+                68,
+                74,
+                214
+            ]
+        ]
+    }
+}

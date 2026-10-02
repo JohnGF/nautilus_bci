@@ -1,0 +1,9 @@
+{
+    "Name": "Baseline & Motor Imagery Calibration Dataset",
+    "BIDSVersion": "1.9.0",
+    "DatasetType": "raw",
+    "License": "CC0",
+    "Authors": [
+        "Nautilus BCI Research Team"
+    ]
+}

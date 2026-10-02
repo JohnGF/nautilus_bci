@@ -169,8 +169,8 @@ class MusicFullTrackTaskApp(BaseTaskApp):
         self.setWindowTitle("BCI Full-Length Music Listening & Entrainment Paradigm")
         self.resize(1120, 840)
 
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        self.music_root = os.path.abspath(os.path.join(base_dir, "music_tracks"))
+        from utils.paths import ASSETS_MUSIC  # assets/ live at repo root
+        self.music_root = ASSETS_MUSIC
 
         # Audio Player Layer
         self.player = QMediaPlayer()

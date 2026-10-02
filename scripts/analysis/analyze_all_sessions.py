@@ -24,7 +24,10 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 
 
-def pool_and_analyze_all(bids_root="bids_musica", subject_id="01", out_dir="analysis_results"):
+def pool_and_analyze_all(bids_root="bids_musica", subject_id="01", out_dir=None):
+    if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis_results/)
+        from utils.paths import RESULTS_DIR
+        out_dir = RESULTS_DIR
     print("=" * 80)
     print(" BCI Multi-Session EEG Pooling & Cross-Validation Studio ".center(80, "="))
     print("=" * 80)
@@ -242,7 +245,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Pool and decode all BIDS sessions.")
     parser.add_argument("--bids-root", type=str, default="bids_musica", help="BIDS root directory")
     parser.add_argument("--sub", type=str, default="01", help="Subject ID")
-    parser.add_argument("--outdir", type=str, default="analysis_results", help="Output directory")
+    parser.add_argument("--outdir", type=str, default=None, help="Output directory (default: repo-root results/)")
     args = parser.parse_args()
 
     pool_and_analyze_all(bids_root=args.bids_root, subject_id=args.sub, out_dir=args.outdir)

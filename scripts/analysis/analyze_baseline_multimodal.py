@@ -25,7 +25,10 @@ import mne
 from mne_bids import BIDSPath, read_raw_bids
 
 
-def analyze_baseline(bids_root="bids_baseline", sub="01", ses="02", task="video", out_dir="analysis_results"):
+def analyze_baseline(bids_root="bids_baseline", sub="01", ses="02", task="video", out_dir=None):
+    if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis_results/)
+        from utils.paths import RESULTS_DIR
+        out_dir = RESULTS_DIR
     bids_root = os.path.abspath(bids_root)
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)

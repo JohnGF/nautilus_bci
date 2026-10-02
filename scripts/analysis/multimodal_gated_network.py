@@ -328,8 +328,9 @@ def train_eval_gated_network(n_splits=5, epochs=45, batch_size=16, lr=0.002):
         }
     }
 
-    out_file = os.path.join("analysis_results", "multimodal_gated_net_results.json")
-    os.makedirs("analysis_results", exist_ok=True)
+    _results_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results")
+    out_file = os.path.join(_results_dir, "multimodal_gated_net_results.json")
+    os.makedirs(_results_dir, exist_ok=True)
     with open(out_file, 'w') as f:
         json.dump(res, f, indent=2)
 

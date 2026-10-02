@@ -356,7 +356,7 @@ def run_benchmark(bids_root="bids_musica", subject_id="01", sessions=None):
 
     # 5. Compile Executive Markdown Report
     chance_level = 100.0 / n_classes
-    report_file = os.path.abspath("analysis_results/bids_benchmark_decoding_report.md")
+    report_file = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "bids_benchmark_decoding_report.md")
     
     os.makedirs(os.path.dirname(report_file), exist_ok=True)
     with open(report_file, 'w', encoding='utf-8') as f:

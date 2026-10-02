@@ -12,7 +12,8 @@ import subprocess
 from PySide6.QtCore import QUrl, QCoreApplication, QTimer
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
-music_dir = os.path.abspath("music_tracks")
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+music_dir = os.path.join(_REPO_ROOT, "assets", "music_tracks")
 tracks = [
     ("real_beethoven_fur_elise", 5000),
     ("real_joplin_entertainer", 10000),

@@ -27,7 +27,7 @@ def calculate_itr(n_classes, accuracy, trial_duration_s=4.0):
 
 
 def main():
-    out_dir = os.path.abspath("analysis_results")
+    out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results")
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 80)

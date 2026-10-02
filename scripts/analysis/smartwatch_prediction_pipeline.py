@@ -11,8 +11,7 @@ Algorithms evaluated:
   - L2 Regularized Logistic Regression (LogReg)
   - Multi-Layer Perceptron (MLP Neural Net)
 
-Results, metrics, confusion matrices, ROC curves, and reports are saved to `analyzes_results/smartwatch/`
-and `scripts/analyzes_results/smartwatch/`.
+Results, metrics, confusion matrices, ROC curves, and reports are saved to `results/smartwatch/`.
 """
 
 import os
@@ -38,10 +37,10 @@ from sklearn.metrics import (
     confusion_matrix, roc_curve, auc
 )
 
-# Output directories
+# Output directory (repo-root results/; reorg merged analyzes_results/ + scripts/analyzes_results/)
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUTPUT_DIRS = [
-    os.path.abspath("analyzes_results/smartwatch"),
-    os.path.abspath("scripts/analyzes_results/smartwatch"),
+    os.path.join(_REPO_ROOT, "results", "smartwatch"),
 ]
 
 for out_dir in OUTPUT_DIRS:
@@ -588,7 +587,7 @@ def run_smartwatch_prediction_pipeline():
             f.write("- `smartwatch_confusion_matrices.png`\n")
             f.write("- `smartwatch_feature_importance.png`\n")
 
-    print(f"\n[+] Successfully saved all Smartwatch results to {OUTPUT_DIRS[0]} and {OUTPUT_DIRS[1]}")
+    print(f"\n[+] Successfully saved all Smartwatch results to {OUTPUT_DIRS[0]}")
     return results
 
 

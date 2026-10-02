@@ -355,8 +355,9 @@ def run_all_decoding_pipelines():
         print(f"{model_name:38s} | {mean_a:6.2f}% +/- {std_a:5.2f}%         | 25.0%")
     print("=" * 75)
 
-    out_file = os.path.join("analysis_results", "advanced_decoding_benchmark.json")
-    os.makedirs("analysis_results", exist_ok=True)
+    _results_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results")
+    out_file = os.path.join(_results_dir, "advanced_decoding_benchmark.json")
+    os.makedirs(_results_dir, exist_ok=True)
     with open(out_file, 'w') as f:
         json.dump(results, f, indent=2)
 

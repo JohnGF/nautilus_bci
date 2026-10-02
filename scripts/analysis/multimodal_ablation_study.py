@@ -157,7 +157,9 @@ def load_ablation_features(bids_root="bids_baseline", sub="01", ses="02", task="
     return X_eeg, X_physio, X_motion, y
 
 
-def run_ablation_study(out_dir="analysis_results"):
+def run_ablation_study(out_dir=None):
+    if out_dir is None:  # repo-root results/ (see reorg: results/ <- scripts/analysis_results/)
+        out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results")
     os.makedirs(out_dir, exist_ok=True)
     X_eeg, X_ppg, X_imu, y = load_ablation_features()
 

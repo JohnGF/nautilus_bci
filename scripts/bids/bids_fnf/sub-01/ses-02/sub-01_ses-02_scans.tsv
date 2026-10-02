@@ -1,2 +1,2 @@
-filename	acq_time
-eeg/sub-01_ses-02_task-leftright_eeg.vhdr	n/a
+filename	acq_time	recording_date	location	activity_type	cap_installation	notes
+eeg/sub-01_ses-02_task-leftright_eeg.vhdr	2026-07-06T11:00:00	2026-07-06	Lab Station 1	motor_imagery	installation_2_distinct_day	Motor imagery directional calibration

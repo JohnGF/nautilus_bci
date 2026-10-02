@@ -387,7 +387,9 @@ def get_pipelines(n_components=4):
 # =====================================================================
 # 3. Main Multi-Paradigm Benchmark Engine
 # =====================================================================
-def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir="scripts/analysis/analysis_results_fnf"):
+def run_fnf_analysis(bids_root="scripts/bids/bids_fnf", out_dir=None):
+    if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis/analysis_results_fnf/)
+        out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "analysis_results_fnf")
     os.makedirs(out_dir, exist_ok=True)
     bids_root = os.path.abspath(bids_root)
     

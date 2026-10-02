@@ -20,7 +20,9 @@ BIDS_TOWER_DEFENSE_DIR = 'bids/bids_tower_defense/bids_tower_defense_6_3_27/'
 BIDS_FNF_DIR_SUB1 = 'bids/bids_fnf/'
 BIDS_FNF_DIR_SUB3 = 'bids/bids_fnf/'
 
-OUTPUT_DIR = '../analyzes_results/auditory_vs_silent_imagery/'
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+OUTPUT_DIR = os.path.join(_REPO_ROOT, "results", "auditory_vs_silent_imagery")
 
 def ensure_dir(path):
     if not os.path.exists(path):

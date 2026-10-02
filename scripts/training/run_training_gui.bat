@@ -3,7 +3,13 @@ title BCI Tower Defense - Rhythm Training Studio
 echo Launching BCI Rhythm Training Studio GUI...
 set SCRIPT_DIR=%~dp0
 
-set VENV_PY=%SCRIPT_DIR%..\..\..\tower-defense-bci\python\.venv\Scripts\python.exe
+set VENV_PY=%SCRIPT_DIR%..\..\games\tower-defense-bci\python\.venv\Scripts\python.exe
+if not exist "%VENV_PY%" (
+    set VENV_PY=%SCRIPT_DIR%..\..\..\games\tower-defense-bci\python\.venv\Scripts\python.exe
+)
+if not exist "%VENV_PY%" (
+    set VENV_PY=%SCRIPT_DIR%..\..\..\tower-defense-bci\python\.venv\Scripts\python.exe
+)
 if not exist "%VENV_PY%" (
     set VENV_PY=%SCRIPT_DIR%..\..\tower-defense-bci\python\.venv\Scripts\python.exe
 )
