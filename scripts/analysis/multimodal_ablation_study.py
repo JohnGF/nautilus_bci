@@ -160,6 +160,12 @@ def load_ablation_features(bids_root="bids_baseline", sub="01", ses="02", task="
 def run_ablation_study(out_dir=None):
     if out_dir is None:  # repo-root results/ (see reorg: results/ <- scripts/analysis_results/)
         out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results")
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(out_dir, script_file=__file__)
     os.makedirs(out_dir, exist_ok=True)
     X_eeg, X_ppg, X_imu, y = load_ablation_features()
 

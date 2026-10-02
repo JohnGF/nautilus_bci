@@ -217,6 +217,12 @@ def main():
     
     out_dir = Path(__file__).resolve().parent.parent.parent / "results" / "model_characterization"
     out_dir.mkdir(parents=True, exist_ok=True)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(out_dir, script_file=__file__)
     out_file = out_dir / "full_model_characterization.json"
     with open(out_file, "w") as f:
         json.dump(full_characterization, f, indent=2)

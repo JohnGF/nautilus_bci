@@ -241,6 +241,12 @@ def main():
     # Save results
     out_dir = Path(__file__).resolve().parent.parent.parent / "results" / "assistive_decoder"
     out_dir.mkdir(parents=True, exist_ok=True)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(out_dir, script_file=__file__)
     with open(out_dir / "hierarchical_decoder_results.json", "w") as f:
         json.dump({'sub02_ses03': res_s03, 'sub02_golden_pooled': res_pool}, f, indent=2)
     print(f"Results saved to {out_dir / 'hierarchical_decoder_results.json'}")

@@ -31,6 +31,7 @@
 - Standalone analysis scripts: anchor to file location, e.g.
   `os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "<name>")`.
 - Analysis outputs go to `<repo>/results/...` only. Never write to cwd-relative `analysis_results/` / `analyzes_results/` (pre-reorg names — treat any you find as a bug).
+- Every analysis run must call `write_provenance(out_dir, script_file=__file__, params={...})` from `scripts/utils/provenance.py` so each output folder contains a `RUN_INFO.txt` (timestamp, script, argv, git commit, input datasets). Use the 6-line bootstrap + call pattern already present in `scripts/analysis/*.py`.
 - Runtime media reads come from `<repo>/assets/...` only. Config/logs (`music_offset_config.json`, `battery_log.json`) stay in `scripts/`.
 - BIDS datasets (`scripts/bids*/`) are large and stable — do not move or restructure them. `*_scans.tsv` churn in git status is pre-existing noise.
 - Tower Defense game code resolves via `find_tower_defense_dirs()` in `scripts/training/{train_and_run,gui}.py` — canonical location is `games/tower-defense-bci/python/`, legacy root location kept as fallback.

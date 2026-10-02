@@ -156,6 +156,12 @@ def analyze_neuroscience_activation():
     # Save results
     out_dir = Path(__file__).resolve().parent.parent.parent / "results" / "neuroscience_validation"
     out_dir.mkdir(parents=True, exist_ok=True)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(out_dir, script_file=__file__)
     with open(out_dir / "neuroscience_activation_report.json", "w") as f:
         json.dump({"roi_spectral_profiles": roi_summary, "top_decoding_electrodes": top_channels_data}, f, indent=2)
         

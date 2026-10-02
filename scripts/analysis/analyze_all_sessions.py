@@ -28,6 +28,13 @@ def pool_and_analyze_all(bids_root="bids_musica", subject_id="01", out_dir=None)
     if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis_results/)
         from utils.paths import RESULTS_DIR
         out_dir = RESULTS_DIR
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(out_dir, script_file=__file__,
+                     params={"bids_root": bids_root, "subject_id": subject_id})
     print("=" * 80)
     print(" BCI Multi-Session EEG Pooling & Cross-Validation Studio ".center(80, "="))
     print("=" * 80)

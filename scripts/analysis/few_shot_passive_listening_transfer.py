@@ -387,6 +387,12 @@ def main():
     print("=" * 80)
     print(" FEW-SHOT PASSIVE MUSIC LISTENING TRANSFER PIPELINE ".center(80, "="))
     print("=" * 80)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(OUTPUT_DIR, script_file=__file__)
 
     # 1. Sub-02 Modern Songs -> Tower Defense
     sub02_src, sub02_tgt = extract_sub02_listening_and_td()

@@ -354,6 +354,15 @@ def run_tower_defense_session_analysis(
     if condition != "all":
         session_out_dir += f"_{condition}"
     os.makedirs(session_out_dir, exist_ok=True)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(session_out_dir, script_file=__file__,
+                     params={"bids_root": bids_root, "subject_id": subject_id,
+                             "session_id": session_id, "task": task,
+                             "condition": condition})
 
     print("=" * 80)
     print(f" BCI TOWER DEFENSE: SUB-{sub_clean} SES-{ses_clean} [{condition.upper()}] ".center(80, "="))
@@ -742,6 +751,14 @@ def run_all_sessions_tower_defense_analysis(
 
     os.makedirs(out_dir, exist_ok=True)
     session_summaries = {}
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(out_dir, script_file=__file__,
+                     params={"bids_root": bids_root, "subject_id": subject_id,
+                             "sessions": sessions})
 
     for ses in sessions:
         sub_dir = os.path.join(bids_root, f"sub-{subject_id}", f"ses-{ses}")
@@ -857,6 +874,14 @@ def run_combined_sessions_analysis(
     if condition != "all":
         combined_out_dir += f"_{condition}"
     os.makedirs(combined_out_dir, exist_ok=True)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(combined_out_dir, script_file=__file__,
+                     params={"bids_root": bids_root, "subject_id": subject_id,
+                             "sessions": sessions, "condition": condition})
 
     print("\n" + "=" * 80)
     print(f" COMBINED SESSIONS ANALYSIS: sub-{sub_clean} [{ses_tag}] [{condition.upper()}] ".center(80, "="))

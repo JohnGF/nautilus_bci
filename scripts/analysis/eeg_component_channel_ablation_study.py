@@ -448,6 +448,15 @@ def run_full_eeg_ablation_study():
     print(" COMPREHENSIVE EEG COMPONENT & CHANNEL ABLATION STUDY ".center(80, "="))
     print(" Strictly Using: bids_tower_defense, bids_tower_defense_6_3_27, bids_listening ".center(80, "="))
     print("=" * 80)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(OUTPUT_DIRS[0], script_file=__file__,
+                     params={"datasets": ["scripts/bids/bids_tower_defense",
+                                          "scripts/bids/bids_tower_defense_6_3_27",
+                                          "scripts/bids/bids_listening"]})
 
     all_results = {
         'script': 'scripts/analysis/eeg_component_channel_ablation_study.py',

@@ -25,6 +25,14 @@ def analyze_music_bci(bids_root="bids_dataset", subject_id="01", session_id="04"
     if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis_results/)
         from utils.paths import RESULTS_DIR
         out_dir = RESULTS_DIR
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(out_dir, script_file=__file__,
+                     params={"bids_root": bids_root, "subject_id": subject_id,
+                             "session_id": session_id, "task_name": task_name})
     print("=" * 75)
     print(" BCI Music Memory & Auditory Imagery EEG Analysis Studio ".center(75, "="))
     print("=" * 75)

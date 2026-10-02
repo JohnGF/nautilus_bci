@@ -223,6 +223,12 @@ def extract_fnf_dataset():
     return (np.array(X_lis), np.array(y_lis)), (np.array(X_sil), np.array(y_sil))
 
 def main():
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(OUTPUT_DIR, script_file=__file__)
     all_experiments = []
 
     # -------------------------------------------------------------

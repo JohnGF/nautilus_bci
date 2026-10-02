@@ -63,6 +63,12 @@ def load_clean_epochs(bids_root, ses, task, l_freq=8.0, h_freq=30.0):
 def generate_lateralization_maps(bids_root="scripts/bids/bids_fnf", out_dir=None):
     if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis/analysis_results_fnf/)
         out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "analysis_results_fnf")
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(out_dir, script_file=__file__, params={"bids_root": bids_root})
     os.makedirs(out_dir, exist_ok=True)
     bids_root = os.path.abspath(bids_root)
     

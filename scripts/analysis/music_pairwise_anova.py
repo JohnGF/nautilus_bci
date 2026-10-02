@@ -198,6 +198,14 @@ def run_pairwise_anova_analysis(bids_root="bids_musica", subject_id="01", sessio
     # 4. Save and Print Executive Markdown Report
     report_file = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "pairwise_anova_report.md")
     os.makedirs(os.path.dirname(report_file), exist_ok=True)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(os.path.dirname(report_file), script_file=__file__,
+                     params={"bids_root": bids_root, "subject_id": subject_id,
+                             "sessions": sessions})
     
     with open(report_file, 'w', encoding='utf-8') as f:
         f.write("# BCI Music Pairwise Classification & ANOVA Report\n")

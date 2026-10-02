@@ -331,6 +331,12 @@ def train_eval_gated_network(n_splits=5, epochs=45, batch_size=16, lr=0.002):
     _results_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results")
     out_file = os.path.join(_results_dir, "multimodal_gated_net_results.json")
     os.makedirs(_results_dir, exist_ok=True)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(_results_dir, script_file=__file__)
     with open(out_file, 'w') as f:
         json.dump(res, f, indent=2)
 

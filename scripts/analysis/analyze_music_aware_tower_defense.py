@@ -344,6 +344,14 @@ def run_music_aware_pipeline(
     if out_dir is None:  # repo-root results/ (reorg: results/ <- scripts/analysis_results/)
         out_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "results", "music_aware_tower_defense")
     os.makedirs(out_dir, exist_ok=True)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(out_dir, script_file=__file__,
+                     params={"td_bids_root": td_bids_root,
+                             "music_bids_root": music_bids_root})
 
     print("=" * 85)
     print(" UNIFIED PERCEPTION-IMAGERY-REINFORCEMENT AWARE BCI STUDIO ".center(85, "="))

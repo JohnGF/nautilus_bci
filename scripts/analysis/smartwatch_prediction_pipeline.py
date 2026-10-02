@@ -361,6 +361,12 @@ def run_smartwatch_prediction_pipeline():
     Trains and benchmarks multiple ML classifiers on smartwatch data using Stratified 5-Fold Cross-Validation.
     Saves all metrics, ROC curves, confusion matrices, feature importances, and documentation.
     """
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(OUTPUT_DIRS[0], script_file=__file__)
     X, y, feature_names, class_names = load_smartwatch_dataset()
     if X is None or len(X) == 0:
         print("[-] Failed to load smartwatch dataset.")

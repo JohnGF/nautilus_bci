@@ -1148,6 +1148,14 @@ def run_tower_defense_rhythm_analysis(
     else:
         session_out_dir = os.path.join(out_dir, f"sub-{sub_clean}_pooled_{len(session_tuples)}sessions")
     os.makedirs(session_out_dir, exist_ok=True)
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(session_out_dir, script_file=__file__,
+                     params={"bids_root": bids_root, "sub_id": sub_id,
+                             "ses_id": ses_id})
     
     # 2. Load & Pool Data across all target sessions
     all_X_im, all_X_lis, all_X_blk, all_y, all_session_ids = [], [], [], [], []

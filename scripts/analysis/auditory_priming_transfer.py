@@ -264,6 +264,13 @@ def evaluate_few_shot_priming(X_aud, y_aud, X_sil, y_sil, title, k_shots=[1, 2, 
 if __name__ == '__main__':
     mne.set_log_level('ERROR')
 
+    import os as _os, sys as _sys  # provenance bootstrap (stdlib only)
+    _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from utils.provenance import write_provenance
+    write_provenance(OUTPUT_DIR, script_file=__file__)
+
     td_aud_data, td_sil_data = extract_td_sessions()
     fnf_aud_data, fnf_sil_data = extract_fnf_sessions()
 
