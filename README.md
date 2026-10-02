@@ -28,7 +28,7 @@ Welcome to the **Nautilus BCI** project. This is a comprehensive Python suite fo
 |---|---|---|
 | **Collect data** — record new EEG/BIDS sessions | [Control-panel guide](scripts/README.md) · [Beginner's guide](docs/guides/getting_started_bci_guide.md) | `cd scripts && uv run python run_bci_suite.py` |
 | **Process data** — turn recordings into features & figures | [`scripts/analysis/`](scripts/analysis/) · [Dataset docs](scripts/bids_clean/README.md) | `cd scripts && uv run python analysis/analyze_bids_dataset.py --sub 01 --ses 02` (outputs → `results/`) |
-| **Classify data** — train & compare models on the published BIDS sets | [Training studio](scripts/training/README.md) (10 algorithms) · [Published datasets](scripts/bids_clean/README.md) | `cd scripts && uv run python training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses all --alg all` |
+| **Classify data** — train & compare models on the published BIDS sets | [Training studio](scripts/training/README.md) (10 algorithms) · [Algorithm toolbox](docs/guides/algorithm_toolbox.md) · [Published datasets](scripts/bids_clean/README.md) | `cd scripts && uv run python training/train_and_run.py --dataset bids_tower_defense --sub 02 --ses all --alg all` |
 | **Run inference** — use pretrained models in real time | [Models & inferencer](models/README.md) | see `AssistiveBCIInferencer` snippet below |
 | **Browse outputs** — figures, reports, science notes | [`results/`](results/) · [`docs/`](docs/) | — |
 
