@@ -13,6 +13,7 @@ Welcome to the **Nautilus BCI** project. This is a comprehensive Python suite fo
 
 ## 📖 Documentation & Guides
 
+- [**Documentation site**](https://johngf.github.io/nautilus_bci/) *(architecture, stream map, quickstart)*
 - [Assistive BCI Clinical & Technical Guide](docs/guides/ASSISTIVE_BCI_GUIDE.md) *(Pure MI protocol, HCI false-positive safeguards, & online adaptation)*
 - [Clean BIDS Standard & Dataset Directory](scripts/bids_clean/README.md)
 - [Beginner's Guide & System Architecture](docs/guides/getting_started_bci_guide.md)

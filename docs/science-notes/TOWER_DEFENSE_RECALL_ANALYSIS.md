@@ -39,7 +39,7 @@ Electrophysiological signal screening on all 33 recorded channels (sampled at 25
 
 ### Preprocessing & Protection Strategy
 - **`EEG033` Handling**: Automatically converted to channel type `misc` and dropped from covariance estimation to prevent rank deficiency and numerical divergence.
-- **Robust CAR Spatial Filtering**: Median-based spatial referencing ([`spatial_filters.py`](../analysis/spatial_filters.py)) replaces standard mean subtraction, protecting good channels from noisy electrode contamination.
+- **Robust CAR Spatial Filtering**: Median-based spatial referencing ([`spatial_filters.py`](https://github.com/JohnGF/nautilus_bci/blob/main/scripts/analysis/spatial_filters.py)) replaces standard mean subtraction, protecting good channels from noisy electrode contamination.
 - **Temporal Filtering**: Zero-phase Butterworth bandpass filter (1.0–45.0 Hz) and 50 Hz notch filter remove slow electrochemical half-cell drift and line interference.
 
 ---
