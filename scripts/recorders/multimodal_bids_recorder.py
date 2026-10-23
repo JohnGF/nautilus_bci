@@ -32,7 +32,7 @@ import threading
 import numpy as np
 import pandas as pd
 
-from pylsl import StreamInlet, resolve_streams, local_clock
+from pylsl import StreamInlet, resolve_streams, local_clock, proc_clocksync
 import mne
 import mne_bids
 from mne_bids import BIDSPath, write_raw_bids
@@ -51,6 +51,12 @@ class MultimodalBIDSRecorder:
         self.recording_thread = None
         self.start_time_lsl = 0.0
 
+    @staticmethod
+    def _open_inlet(info):
+        # proc_clocksync maps remote timestamps onto this machine's local_clock(),
+        # so streams from other hosts (watch bridge, fNIRS laptop) line up with EEG.
+        return StreamInlet(info, max_chunklen=64, processing_flags=proc_clocksync)
+
     def discover_and_connect_streams(self, timeout=3.0):
         print("=" * 70)
         print(" Discovering Active LSL Streams ".center(70, "="))
@@ -66,7 +72,7 @@ class MultimodalBIDSRecorder:
             sname = s.name()
             print(f"[+] Found Stream: '{sname}' | Type: '{stype}' | Channels: {s.channel_count()} | Rate: {s.nominal_srate()} Hz")
 
-            inlet = StreamInlet(s, max_chunklen=64)
+            inlet = self._open_inlet(s)
             self.inlets[sname] = {
                 'inlet': inlet,
                 'info': s,
@@ -103,7 +109,7 @@ class MultimodalBIDSRecorder:
                         stype = s.type().upper()
                         print(f"[+] Dynamically discovered stream: '{sname}' | Type: '{stype}'")
                         try:
-                            inlet = StreamInlet(s, max_chunklen=64)
+                            inlet = self._open_inlet(s)
                             self.inlets[sname] = {
                                 'inlet': inlet,
                                 'info': s,

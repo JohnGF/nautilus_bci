@@ -1,0 +1,45 @@
+site_name: Nautilus BCI
+site_url: https://johngf.github.io/nautilus_bci/
+
+theme:
+  name: material
+  features:
+    - navigation.indexes
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+docs_dir: docs
+exclude_docs: |
+  vendor-manuals/
+  README.md
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Architecture: architecture.md
+  - Guides:
+      - Getting Started: guides/getting_started_bci_guide.md
+      - LSL Network Setup: guides/lsl_network_setup.md
+      - Assistive BCI Guide: guides/ASSISTIVE_BCI_GUIDE.md
+      - Algorithm Toolbox: guides/algorithm_toolbox.md
+      - BCI Signal Processing: guides/bci_signal_processing.md
+      - BIDS Standard and Usage: guides/bids_standard_and_usage.md
+  - Science Notes:
+      - Experimental Notes: science-notes/EXPERIMENTAL_MASTER_NOTES.md
+      - Multimodal Deep Learning: science-notes/MULTIMODAL_DEEP_LEARNING_GATED_FUSION.md
+      - Music Perception Transfer: science-notes/MUSIC_PERCEPTION_IMAGERY_TRANSFER.md
+      - Milestones: science-notes/README_milestones.md
+      - Finding Music Perception: science-notes/SCIENTIFIC_FINDING_MUSIC_PERCEPTION_TRANSFER.md
+      - Session 04: science-notes/SESSION_04_SCIENTIFIC_NOTE.md
+      - Tower Defense Analysis: science-notes/TOWER_DEFENSE_RECALL_ANALYSIS.md
+      - BCI Music Resources: science-notes/bci_music_resources.md
+

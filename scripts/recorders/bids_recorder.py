@@ -15,7 +15,7 @@ import threading
 import numpy as np
 import pandas as pd
 
-from pylsl import StreamInlet, resolve_byprop, resolve_streams, local_clock
+from pylsl import StreamInlet, resolve_byprop, resolve_streams, local_clock, proc_clocksync
 import mne
 import mne_bids
 from mne_bids import BIDSPath, write_raw_bids
@@ -52,11 +52,11 @@ class BIDSRecorder:
         if eeg_stream_info is None:
             raise RuntimeError(f"Could not find EEG stream named '{self.eeg_stream_name}' or type 'EEG'.")
 
-        self.eeg_inlet = StreamInlet(eeg_stream_info, max_chunklen=32)
+        self.eeg_inlet = StreamInlet(eeg_stream_info, max_chunklen=32, processing_flags=proc_clocksync)
         print(f"[+] Connected to EEG Stream: {eeg_stream_info.name()} ({eeg_stream_info.channel_count()} ch, {eeg_stream_info.nominal_srate()} Hz)")
 
         if marker_stream_info is not None:
-            self.marker_inlet = StreamInlet(marker_stream_info)
+            self.marker_inlet = StreamInlet(marker_stream_info, processing_flags=proc_clocksync)
             print(f"[+] Connected to Marker Stream: {marker_stream_info.name()}")
         else:
             print("[!] Warning: Marker stream not found. Will attempt to reconnect or record EEG only.")
@@ -101,7 +101,7 @@ class BIDSRecorder:
                 try:
                     m_streams = resolve_byprop("name", self.marker_stream_name, timeout=0.1)
                     if m_streams:
-                        self.marker_inlet = StreamInlet(m_streams[0])
+                        self.marker_inlet = StreamInlet(m_streams[0], processing_flags=proc_clocksync)
                         print(f"[+] Late-connected to Marker Stream: {self.marker_stream_name}")
                 except Exception:
                     pass

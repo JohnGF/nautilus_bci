@@ -30,6 +30,7 @@ import json
 import socket
 import sys
 import time
+from collections import deque
 import numpy as np
 from pylsl import StreamInfo, StreamOutlet, local_clock
 
@@ -40,6 +41,32 @@ try:
     HAS_WEBSOCKETS = True
 except ImportError:
     HAS_WEBSOCKETS = False
+
+
+class DeviceClockMapper:
+    """Maps device timestamps (seconds) onto LSL local_clock().
+
+    offset = arrival - device_time is transport delay plus the clock difference.
+    The minimum over a sliding window is the fastest packet seen, so it strips
+    network jitter; the window lets it follow slow clock drift between devices.
+    What remains is the constant minimum one-way latency, which a per-device
+    sync check (e.g. a tap seen in both EEG and IMU) can measure.
+    """
+
+    def __init__(self, window_s=10.0):
+        self.window_s = window_s
+        self.offsets = deque()  # (arrival, offset), offsets kept increasing
+
+    def map(self, device_s):
+        arrival = local_clock()
+        offset = arrival - device_s
+        # Monotonic deque: anything with a larger offset can never be the window minimum again
+        while self.offsets and self.offsets[-1][1] >= offset:
+            self.offsets.pop()
+        self.offsets.append((arrival, offset))
+        while arrival - self.offsets[0][0] > self.window_s:
+            self.offsets.popleft()
+        return device_s + self.offsets[0][1]
 
 
 def create_lsl_outlets():
@@ -130,6 +157,7 @@ def run_udp_server(host, port, imu_outlet, ppg_outlet):
 
     print("    Listening for UDP packets from Galaxy Watch... Press Ctrl+C to stop.")
     count = 0
+    clock = DeviceClockMapper()
     try:
         while True:
             data, addr = sock.recvfrom(4096)
@@ -156,15 +184,18 @@ def run_udp_server(host, port, imu_outlet, ppg_outlet):
                 except (json.JSONDecodeError, KeyError):
                     pass
 
-            # 2. Try CSV parsing (e.g. format: accX,accY,accZ,gyroX,gyroY,gyroZ,hr)
+            # 2. Try CSV parsing
+            #    accX,accY,accZ,gyroX,gyroY,gyroZ,hr[,touchX,touchY,isTouched,timestampNs]
             parts = text.split(',')
             if len(parts) >= 6:
                 try:
                     vals = [float(p.strip()) for p in parts if p.strip()]
                     if len(vals) >= 6:
-                        imu_outlet.push_sample(vals[:6])
+                        # Newer watch app sends the sensor timestamp; older builds fall back to arrival time
+                        stamp = clock.map(vals[10] * 1e-9) if len(vals) >= 11 else local_clock()
+                        imu_outlet.push_sample(vals[:6], stamp)
                         if len(vals) >= 7:
-                            ppg_outlet.push_sample([vals[6], 100.0])
+                            ppg_outlet.push_sample([vals[6], 100.0], stamp)
                 except ValueError:
                     pass
 

@@ -86,7 +86,7 @@ $$\log \frac{P(\text{class}_i)}{P(\text{class}_j)} \leftarrow \log \frac{P(\text
 
 ## 5. Developer Quick-Start: Real-Time Inference in Games & UI
 
-We provide a drop-in real-time inference module located at [`models/assistive_inferencer.py`](file:///run/media/john/ssd_external/git/bci_projects/nautilus_bci/models/assistive_inferencer.py):
+We provide a drop-in real-time inference module located at [`models/assistive_inferencer.py`](https://github.com/JohnGF/nautilus_bci/blob/main/models/assistive_inferencer.py):
 
 ### Python Integration Example
 ```python
@@ -171,7 +171,7 @@ In our streaming evaluation across consecutive trials:
 
 ## 7. Developer Quick-Start: Real-Time Inference in Games & UI
 
-We provide a drop-in real-time inference module located at [`models/assistive_inferencer.py`](../models/assistive_inferencer.py):
+We provide a drop-in real-time inference module located at [`models/assistive_inferencer.py`](https://github.com/JohnGF/nautilus_bci/blob/main/models/assistive_inferencer.py):
 
 ### Python Integration with Ongoing Adaptation
 ```python

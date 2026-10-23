@@ -2,7 +2,7 @@
 
 This directory consolidates all `nautilus_bci` documentation:
 
-- `guides/` — beginner guides: system overview, BIDS standard, signal-processing theory, [algorithm toolbox reference](guides/algorithm_toolbox.md).
+- `guides/` — beginner guides: system overview, BIDS standard, signal-processing theory, [algorithm toolbox reference](guides/algorithm_toolbox.md), [LSL network & firewall setup](guides/lsl_network_setup.md).
 - `science-notes/` — experiment notes, milestones, and music-perception/transfer findings.
 - `vendor-manuals/` — third-party hardware manuals (g.tec, Unicorn) for reference only.
 
