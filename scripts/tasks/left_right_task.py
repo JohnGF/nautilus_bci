@@ -4,8 +4,6 @@ _parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
-import sys
-import os
 import random
 import time
 import wave
@@ -386,19 +384,19 @@ class LeftRightTaskApp(BaseTaskApp):
         if practice:
             self.blocks = [{'name': 'Practice Mode (Music)', 'music': True}]
         elif order_idx == 0:
-            self.blocks = [{'name': 'Block 1 (Music)', 'music': True}, {'name': 'Block 2 (No Music)', 'music': False}]
-        elif order_idx == 1:
             self.blocks = [{'name': 'Block 1 (No Music)', 'music': False}, {'name': 'Block 2 (Music)', 'music': True}]
+        elif order_idx == 1:
+            self.blocks = [{'name': 'Block 1 (Music)', 'music': True}, {'name': 'Block 2 (No Music)', 'music': False}]
         elif order_idx == 2:
-            self.blocks = [{'name': 'Block 1 (Music)', 'music': True}]
-        else:
             self.blocks = [{'name': 'Block 1 (No Music)', 'music': False}]
+        else:
+            self.blocks = [{'name': 'Block 1 (Music)', 'music': True}]
 
         self.reps_per_direction = reps
         self.current_block_idx = 0
 
-        sub = self.sub_input.text()
-        ses = self.ses_input.text()
+        sub = self.sub_input.text().strip().replace('sub-', '')
+        ses = self.ses_input.text().strip().replace('ses-', '')
         mode = "AudioEyesClosed" if self.eyes_closed_mode else ("AudioVisual" if self.audio_cues_enabled else "VisualOnly")
 
         self.send_marker(f"Experiment_Start_Sub_{sub}_Ses_{ses}_Paradigm_{self.axis_code}_Mode_{mode}")
@@ -421,12 +419,13 @@ class LeftRightTaskApp(BaseTaskApp):
         self.trial_idx = 0
 
         if block_info['music']:
+            track_name = self.music_track_input.text().strip().replace(' ', '_')[:30] or "Music"
             if os.path.exists(self.audio_path):
                 self.music_player.play()
                 position_ms = self.music_player.position()
-                self.send_marker(f"Audio_Started_BillieJean_PosMS_{position_ms}")
+                self.send_marker(f"Audio_Started_{track_name}_PosMS_{position_ms}")
             else:
-                self.send_marker("Audio_Started_BillieJean_Synthetic")
+                self.send_marker(f"Audio_Started_{track_name}_Synthetic")
         else:
             self.music_player.stop()
             self.send_marker("Audio_Stopped")
@@ -558,7 +557,12 @@ class LeftRightTaskApp(BaseTaskApp):
         self.trial_timer.stop()
         self.music_player.stop()
         self.cue_player.stop()
+        self.send_marker("Motor_Imagery_Experiment_Aborted")
         self.reset_to_config()
+
+    def closeEvent(self, event):
+        self.stop_experiment()
+        event.accept()
 
     def reset_to_config(self):
         self.stacked_widget.setCurrentWidget(self.config_screen)

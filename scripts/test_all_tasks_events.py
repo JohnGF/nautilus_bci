@@ -39,8 +39,16 @@ def run_task_test(task_class, task_name, mock_streamer_proc):
 
     # 2. Setup Recorder
     bids_root = os.path.join(base_dir, "test_dev_bids")
+    eeg_dir = os.path.join(bids_root, "sub-99", "ses-99", "eeg")
+    if os.path.exists(eeg_dir):
+        for f in os.listdir(eeg_dir):
+            if f"task-{task_name}" in f:
+                try:
+                    os.remove(os.path.join(eeg_dir, f))
+                except Exception:
+                    pass
     os.makedirs(bids_root, exist_ok=True)
-    recorder = BIDSRecorder(bids_root=bids_root, marker_stream_name=task_gui.marker_name)
+    recorder = BIDSRecorder(bids_root=bids_root, marker_stream_name=task_gui.marker_name, marker_source_id=task_gui.source_id)
 
     # Give LSL time to register the new marker outlet before connecting
     time.sleep(1.0)
@@ -61,7 +69,7 @@ def run_task_test(task_class, task_name, mock_streamer_proc):
     task_gui.send_marker(f"TestMarker_2_{task_name}_Active")
     time.sleep(0.5)
     task_gui.send_marker("TestMarker_3_End")
-    time.sleep(0.5)
+    time.sleep(1.0)
 
     # 5. Stop Recording & Export
     print("[*] Stopping recording and exporting to BIDS...")
@@ -88,7 +96,10 @@ def run_task_test(task_class, task_name, mock_streamer_proc):
     print(f"[+] Verified {task_class.__name__} successfully saved all expected markers to _events.tsv!")
     print(f"[+] Output verified at: {events_file}")
 
+    task_gui.close_lsl()
     task_gui.deleteLater()
+    app.processEvents()
+    time.sleep(0.5)
 
 def main():
     print("="*60)
