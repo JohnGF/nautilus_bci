@@ -35,3 +35,14 @@ hardware = [
 [tool.uv.sources]
 pygds = { path = "wheels/pygds-1.24.0-py3-none-any.whl" }
 
+
+[dependency-groups]
+dev = [
+    "eeglabio>=0.1.4",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["realdata: uses the repo's scripts/bids*/ datasets (skipped when absent)"]
