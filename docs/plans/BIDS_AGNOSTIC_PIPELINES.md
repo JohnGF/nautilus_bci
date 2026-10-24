@@ -110,6 +110,16 @@ Build these in order of value: `qc` → `bandpower/psd` → `erd_topomap` → `d
 - `analysis/run.py` is the CLI that chains pipelines and works with `--sub/--ses/--task` omitted (meaning all).
 - Acceptance: one command runs every pipeline on `bids/music_lrud`, `bids_clean/bids_fnf` and `bids_clean/bids_td_classical`, plus one fresh synthetic dataset, without per-dataset code.
 
+**Status (2026-10-24, branch `feature/bids-agnostic-phase2`):** built.
+- New modules: `epochs.py`, `decode.py`, `spectral.py`, `report.py` and `pipelines.py` (orchestration), plus the `analysis/run.py` CLI. `tests/test_pipelines.py` adds the epoch/decode/ERD/end-to-end tests.
+- Run with `uv run python -m analysis.run --bids-root <root> [<root> ...] --pipeline all`. Every step prints a progress line with elapsed time, and output is line-buffered.
+- Two anti-leakage gaps were found on real data and closed in `decode.py`:
+  - **Overlapping epochs.** FNF arrows arrive every 0.39 s and the window is 3 s, so shuffled k-fold scored 94%. `decode.py` now detects overlap, switches to time-contiguous folds and purges training epochs that overlap a test epoch (`PurgedCV`).
+  - **Labels blocked in time.** In FNF sub-01 ses-07, 99.5% of trials repeat the previous label. Each class is one time block, so class is confounded with time. When every class has >= 2 blocks, CV holds out whole blocks and the permutation null shuffles block labels. Otherwise the result is marked **CONFOUNDED**.
+- ERD% is computed from trial-averaged power, not by averaging per-trial ratios. The legacy method is biased upwards by the noisy short baseline in the denominator.
+- Deep models (EEGNet/ShallowConvNet from `benchmark_strict_2class_music.py`) are not ported yet. `--models` currently selects `CSP+LDA` and `Riemann TS+LR`.
+- Inferred specs are drafts (saved to `results/spec/<dataset>/`). Phase 3 must check their windows: the inferred 3 s window is wrong for FNF's 0.4 s event stream.
+
 ### Phase 3: Specs for existing datasets
 - Write `scripts/analysis/specs/<dataset>.json` for each dataset under `scripts/bids*/`, deriving the event rules from the current hard-coded scripts.
 - Record the known confounds from DATASET_CONFOUNDS.md in each spec so reports print them.
