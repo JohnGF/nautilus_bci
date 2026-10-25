@@ -86,7 +86,16 @@ def test_kinds_and_generic_channels():
     registry.handle(parse_packet("W2|a|L_wrist|0|HR|0,72"), arrival=1.0)
     registry.handle(parse_packet("W2|a|L_wrist|1|EMG@1000|0,0.1,0.2"), arrival=1.0)
     assert (outlets[0].name, outlets[0].type) == ("HR_L_wrist", "PPG")
-    assert (outlets[1].type, [c[0] for c in outlets[1].channels]) == ("EMG", ["ch1", "ch2"])
+    assert (outlets[1].type, [c[0] for c in outlets[1].channels]) == ("EMG", ["ch1", "ch2", "DeviceTime"])
+
+
+def test_data_streams_carry_raw_device_time():
+    registry, outlets = make_registry()
+    registry.handle(parse_packet("W2|a|L_wrist|0|IMU|1500000000,1,2,3,4,5,6"), arrival=10.0)
+    assert outlets[0].channel_format == "double64"
+    values, stamp = outlets[0].pushed[0]
+    assert values == [1, 2, 3, 4, 5, 6, 1.5]
+    assert stamp == pytest.approx(10.0)
 
 
 def test_heartbeat_is_status_not_stream():

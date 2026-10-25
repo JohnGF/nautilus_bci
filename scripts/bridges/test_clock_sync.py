@@ -24,7 +24,8 @@ def test_asymmetric_legs_stay_within_half_delay():
 
 
 def simulate(sync, seconds, true_offset, drift, rng, answer=True):
-    """Device sends 10 packets/s; each may trigger a ping over a jittery link (1-15 ms per leg)."""
+    """Device sends 10 packets/s; each may trigger a ping over a jittery link (1-15 ms per leg).
+    drift > 0 makes the device clock slow, so the offset (LSL - device) grows: slope = +drift."""
     now = 0.0
     while now < seconds:
         ping_id = sync.next_ping(now)

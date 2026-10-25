@@ -21,6 +21,9 @@ from clock_sync import ECHO_KIND, DeviceSync, format_ping
 
 TAG = "W2"
 STATUS_KIND = "HB"  # heartbeat: sent, dropped, battery_pct; status only, not an LSL stream
+# Appended to every data stream: the sample's raw device timestamp, so a recording can redo the
+# clock fit offline against the ClockSync_* exchanges. double64, since float32 would round it to ~10 ms.
+DEVICE_TIME_CHANNEL = ("DeviceTime", "s_device", "DeviceClock")
 SYNC_CHANNELS = [("t1_ping_sent", "s_lsl"), ("t2_ping_received", "s_device"),
                  ("t3_echo_sent", "s_device"), ("t4_echo_received", "s_lsl")]
 STALE_AFTER_S = 3.0
@@ -120,7 +123,7 @@ def format_packet(device_id, location, seq, kind, samples, srate=0.0):
     return f"{TAG}|{device_id}|{location}|{seq % SEQ_MOD}|{head}|{body}"
 
 
-def make_outlet(name, stream_type, source_id, srate, channels, device_id, location, channel_format="float32"):
+def make_stream_info(name, stream_type, source_id, srate, channels, device_id, location, channel_format="float32"):
     info = StreamInfo(name=name, type=stream_type, channel_count=len(channels),
                       nominal_srate=srate, channel_format=channel_format, source_id=source_id)
     desc = info.desc()
@@ -130,12 +133,16 @@ def make_outlet(name, stream_type, source_id, srate, channels, device_id, locati
     desc.append_child_value("clock_sync", "ping/echo offset+drift fit (see ClockSync_* stream); "
                                           "min one-way offset until the first burst or for devices without echo")
     chans = desc.append_child("channels")
-    for label, unit in channels:
+    for label, unit, *ch_type in channels:
         ch = chans.append_child("channel")
         ch.append_child_value("label", label)
         ch.append_child_value("unit", unit)
-        ch.append_child_value("type", stream_type)
-    return StreamOutlet(info)
+        ch.append_child_value("type", ch_type[0] if ch_type else stream_type)
+    return info
+
+
+def make_outlet(*args, **kwargs):
+    return StreamOutlet(make_stream_info(*args, **kwargs))
 
 
 @dataclass
@@ -198,7 +205,7 @@ class DeviceRegistry:
             outlet = self._add_outlet(dev, packet)
         for t, values in packet.samples:
             offset = dev.sync.offset(t)
-            outlet.push_sample(values, t + (fallback if offset is None else offset))
+            outlet.push_sample(values + [t], t + (fallback if offset is None else offset))
         dev.samples[packet.kind] = dev.samples.get(packet.kind, 0) + len(packet.samples)
 
     def next_ping(self, device_id, now):
@@ -245,8 +252,9 @@ class DeviceRegistry:
         if len(channels) != n:
             channels = [(f"ch{i + 1}", "") for i in range(n)]
         name = f"{packet.kind}_{dev.stream_suffix}"
-        outlet = self.outlet_factory(name, stream_type, f"{dev.device_id}_{packet.kind}",
-                                     packet.srate, channels, dev.device_id, dev.location)
+        outlet = self.outlet_factory(name, stream_type, f"{dev.device_id}_{packet.kind}", packet.srate,
+                                     channels + [DEVICE_TIME_CHANNEL], dev.device_id, dev.location,
+                                     channel_format="double64")
         dev.outlets[packet.kind] = outlet
         self.log(f"    LSL outlet '{name}' ({stream_type}, {n} ch, {packet.srate:g} Hz)")
         return outlet
@@ -274,7 +282,8 @@ class DeviceRegistry:
             age = now - dev.last_seen
             state = "STALE" if age > STALE_AFTER_S else "ok"
             if dev.sync.synced:
-                sync = f"sync ±{dev.sync.error_bound() * 1e3:.1f}ms drift {dev.sync.slope * 1e6:+.0f}ppm"
+                # Offset shrinks when the device clock runs fast; show fast as positive
+                sync = f"sync ±{dev.sync.error_bound() * 1e3:.1f}ms drift {-dev.sync.slope * 1e6:+.0f}ppm"
             elif dev.sync.gave_up:
                 sync = "sync: no echo (fallback)"
             else:
