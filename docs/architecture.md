@@ -22,11 +22,12 @@ Below is a table of the primary data sources, verified against the current codeb
 | g.Nautilus | `gNautilus_EEG` or `gNautilus_fNIRS` | `EEG` or `fNIRS` | Varies (e.g. 32) | Configurable | `scripts/bridges/gds_to_lsl.py` |
 | g.Nautilus via gpype | Parameterized | Parameterized | Varies | Varies | `scripts/bridges/gpype_to_lsl.py` |
 | Galaxy Watch | `Smartwatch_IMU`, `Smartwatch_PPG` | `IMU`, `PPG` | 6 (IMU), 2 (PPG) | 50 Hz (IMU), 1 Hz (PPG) | `integrations/galaxy_watch_lsl` -> `scripts/bridges/smartwatch_lsl_bridge.py` |
+| Wearables (W2: watches, ESP32, any count) | `IMU_<location>`, `HR_<location>`, `TOUCH_<location>` | `IMU`, `PPG`, `Touch` | 6, 1, 3 | sender-declared (e.g. 50 Hz IMU) | W2 UDP -> `scripts/bridges/smartwatch_lsl_bridge.py`, see [Wearable Protocol](guides/wearable_protocol.md) |
 | Artinis fNIRS | `Artinis_fNIRS` | `fNIRS` | Configurable | Configurable | `scripts/bridges/artinis_to_lsl.py` |
 | Task Markers | Varies | `Markers` | 1 | Irregular (0) | `scripts/tasks/common/base_task.py` |
 | Games / External Engines | Varies | `Markers` | 1 | Irregular (0) | UDP to LSL bridge via `external_game_engines` |
 
-*Note: The Galaxy Watch smartwatch bridge specifically maps the watch's sensor timestamp onto LSL time (`DeviceClockMapper`), smoothing out jitter from UDP transmission.*
+*Note: The smartwatch bridge maps each device's sensor timestamp onto LSL time with its own `DeviceClockMapper`, smoothing out jitter from UDP transmission.*
 
 ## Adding a New Device
 

@@ -1,18 +1,21 @@
 """
-Smartwatch (PPG & IMU) to Lab Streaming Layer (LSL) Bridge
-==========================================================
+Smartwatch / Wearable (PPG & IMU) to Lab Streaming Layer (LSL) Bridge
+=====================================================================
 
-This script receives smartwatch sensor data (PPG/HeartRate and 6-DOF IMU) 
+This script receives wearable sensor data (PPG/HeartRate and 6-DOF IMU)
 over WebSockets or UDP and streams them live into LSL.
 
 Supported inputs:
-1. Sensor Logger app (iOS / Wear OS / Android) - set live export to WebSocket (ws://<PC_IP>:8080)
-2. Custom Wear OS / Android UDP packet streams
-3. --mock flag for testing LSL streams without a watch connected
+1. W2 multi-device UDP packets (galaxy_watch_lsl >= 1.2, ESP32 boards, ...):
+   any number of devices, one set of LSL streams per device, named by body
+   location (e.g. 'IMU_L_wrist', 'IMU_R_ankle'). See docs/guides/wearable_protocol.md
+2. Legacy single-watch UDP CSV packets -> 'Smartwatch_IMU' / 'Smartwatch_PPG'
+3. Sensor Logger app (iOS / Wear OS / Android) - set live export to WebSocket (ws://<PC_IP>:8080)
+4. --mock flag: simulates four W2 devices (both wrists, both ankles)
 
 Usage:
-    uv run python smartwatch_lsl_bridge.py --mode websocket --port 8080
     uv run python smartwatch_lsl_bridge.py --mode udp --port 5005
+    uv run python smartwatch_lsl_bridge.py --mode websocket --port 8080
     uv run python smartwatch_lsl_bridge.py --mock
 """
 import sys
@@ -27,12 +30,14 @@ if _curr_dir not in sys.path:
 
 import argparse
 import json
+import random
 import socket
 import sys
 import time
-from collections import deque
 import numpy as np
 from pylsl import StreamInfo, StreamOutlet, local_clock
+
+from wearable_protocol import DeviceClockMapper, DeviceRegistry, format_packet, parse_packet
 
 # Try importing websockets for websocket server mode
 try:
@@ -42,31 +47,8 @@ try:
 except ImportError:
     HAS_WEBSOCKETS = False
 
-
-class DeviceClockMapper:
-    """Maps device timestamps (seconds) onto LSL local_clock().
-
-    offset = arrival - device_time is transport delay plus the clock difference.
-    The minimum over a sliding window is the fastest packet seen, so it strips
-    network jitter; the window lets it follow slow clock drift between devices.
-    What remains is the constant minimum one-way latency, which a per-device
-    sync check (e.g. a tap seen in both EEG and IMU) can measure.
-    """
-
-    def __init__(self, window_s=10.0):
-        self.window_s = window_s
-        self.offsets = deque()  # (arrival, offset), offsets kept increasing
-
-    def map(self, device_s):
-        arrival = local_clock()
-        offset = arrival - device_s
-        # Monotonic deque: anything with a larger offset can never be the window minimum again
-        while self.offsets and self.offsets[-1][1] >= offset:
-            self.offsets.pop()
-        self.offsets.append((arrival, offset))
-        while arrival - self.offsets[0][0] > self.window_s:
-            self.offsets.popleft()
-        return device_s + self.offsets[0][1]
+STATUS_EVERY_S = 5.0
+MOCK_LOCATIONS = ["L_wrist", "R_wrist", "L_ankle", "R_ankle"]
 
 
 def create_lsl_outlets():
@@ -115,89 +97,146 @@ def create_lsl_outlets():
     return imu_outlet, ppg_outlet
 
 
-def run_mock_stream(imu_outlet, ppg_outlet):
-    """Broadcasting mock smartwatch signals for pipeline verification."""
-    print("\n[+] Running in MOCK mode. Broadcasting synthetic smartwatch PPG & IMU...")
+class LegacyOutlets:
+    """Creates the single-watch 'Smartwatch_*' outlets only once a legacy packet arrives,
+    so a W2-only session does not advertise two empty streams to the recorder."""
+
+    def __init__(self):
+        self._outlets = None
+
+    def get(self):
+        if self._outlets is None:
+            self._outlets = create_lsl_outlets()
+        return self._outlets
+
+
+def run_mock_stream(registry):
+    """Simulate four W2 devices through the real parse/registry path, each with its own clock."""
+    print("\n[+] Running in MOCK mode: " + ", ".join(MOCK_LOCATIONS))
     print("    Press Ctrl+C to stop.")
-    
-    sample_rate = 50.0  # 50 Hz IMU
-    interval = 1.0 / sample_rate
-    t = 0.0
+
+    sample_rate = 50.0
+    batch = 5
+    interval = batch / sample_rate
+    # Random clock origins prove each device is mapped onto LSL time independently
+    devices = [(f"mock-{loc}", loc, random.randint(0, 10 ** 12)) for loc in MOCK_LOCATIONS]
+    seq = {d[0]: 0 for d in devices}
+    start = time.monotonic()
+    next_status = start + STATUS_EVERY_S
+    n = 0
 
     try:
         while True:
-            t += interval
-            # Simulate IMU data
-            accel_x = np.sin(2 * np.pi * 1.0 * t) * 0.5
-            accel_y = np.cos(2 * np.pi * 1.0 * t) * 0.5
-            accel_z = 9.81 + np.sin(2 * np.pi * 0.2 * t) * 0.1
-            gyro_x = np.sin(2 * np.pi * 2.0 * t) * 0.1
-            gyro_y = np.cos(2 * np.pi * 2.0 * t) * 0.1
-            gyro_z = np.sin(2 * np.pi * 0.5 * t) * 0.05
-
-            imu_sample = [accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z]
-            imu_outlet.push_sample(imu_sample)
-
-            # Push PPG/HR sample once every second
-            if int(t * 50) % 50 == 0:
-                simulated_hr = 70.0 + 5.0 * np.sin(2 * np.pi * 0.05 * t)
-                ppg_sample = [simulated_hr, 95.0]
-                ppg_outlet.push_sample(ppg_sample)
-
-            time.sleep(interval)
+            for device_id, loc, clock0 in devices:
+                samples = []
+                for k in range(batch):
+                    t = (n * batch + k) / sample_rate
+                    phase = MOCK_LOCATIONS.index(loc)
+                    samples.append((clock0 + int(t * 1e9), [
+                        np.sin(2 * np.pi * 1.0 * t + phase) * 0.5,
+                        np.cos(2 * np.pi * 1.0 * t + phase) * 0.5,
+                        9.81 + np.sin(2 * np.pi * 0.2 * t) * 0.1,
+                        np.sin(2 * np.pi * 2.0 * t) * 0.1,
+                        np.cos(2 * np.pi * 2.0 * t) * 0.1,
+                        np.sin(2 * np.pi * 0.5 * t) * 0.05,
+                    ]))
+                packets = [format_packet(device_id, loc, seq[device_id], "IMU", samples, sample_rate)]
+                if n % int(sample_rate / batch) == 0:  # once a second
+                    t_ns = samples[-1][0]
+                    hr = 70.0 + 5.0 * np.sin(2 * np.pi * 0.05 * n * interval)
+                    packets.append(format_packet(device_id, loc, seq[device_id] + 1, "HR", [(t_ns, [hr])]))
+                    packets.append(format_packet(device_id, loc, seq[device_id] + 2, "HB", [(t_ns, [n, 0, 90])]))
+                for p in packets:
+                    registry.handle(parse_packet(p))
+                    seq[device_id] += 1
+            n += 1
+            if time.monotonic() >= next_status:
+                print_status(registry)
+                next_status += STATUS_EVERY_S
+            time.sleep(max(0.0, start + n * interval - time.monotonic()))
     except KeyboardInterrupt:
         print("\n[*] Mock stream stopped.")
 
 
-def run_udp_server(host, port, imu_outlet, ppg_outlet):
-    """Listen for incoming JSON or CSV sensor packets from free smartwatch apps (e.g. HyperIMU)."""
+def print_status(registry):
+    lines = registry.status_lines()
+    if lines:
+        print(f"[status] {len(lines)} device(s)")
+        for line in lines:
+            print(line)
+
+
+def handle_legacy_udp(text, legacy, clock):
+    """Single-watch JSON / CSV packets from apps that predate the W2 protocol."""
+    # 1. Try JSON parsing
+    if text.startswith('{'):
+        try:
+            payload = json.loads(text)
+            imu_outlet, ppg_outlet = legacy.get()
+            if 'accel' in payload and 'gyro' in payload:
+                ax, ay, az = payload['accel']
+                gx, gy, gz = payload['gyro']
+                imu_outlet.push_sample([ax, ay, az, gx, gy, gz])
+            if 'heart_rate' in payload:
+                hr = payload['heart_rate']
+                conf = payload.get('confidence', 100.0)
+                ppg_outlet.push_sample([hr, conf])
+            return
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # 2. Try CSV parsing
+    #    accX,accY,accZ,gyroX,gyroY,gyroZ,hr[,touchX,touchY,isTouched,timestampNs]
+    parts = text.split(',')
+    if len(parts) >= 6:
+        try:
+            vals = [float(p.strip()) for p in parts if p.strip()]
+            if len(vals) >= 6:
+                imu_outlet, ppg_outlet = legacy.get()
+                # Newer watch app sends the sensor timestamp; older builds fall back to arrival time
+                stamp = clock.map(vals[10] * 1e-9) if len(vals) >= 11 else local_clock()
+                imu_outlet.push_sample(vals[:6], stamp)
+                if len(vals) >= 7:
+                    ppg_outlet.push_sample([vals[6], 100.0], stamp)
+        except ValueError:
+            pass
+
+
+def run_udp_server(host, port, registry, legacy):
+    """Listen for W2 packets from any number of wearables, plus legacy single-watch packets."""
     print(f"\n[+] Starting UDP server on {host}:{port}...")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Four devices at 10-20 packets/s each can outrun the default buffer while the GIL is busy
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 20)
     sock.bind((host, port))
+    sock.settimeout(1.0)  # wake up for the status table even when every device is silent
 
-    print("    Listening for UDP packets from Galaxy Watch... Press Ctrl+C to stop.")
-    count = 0
-    clock = DeviceClockMapper()
+    print("    Listening for UDP packets from wearables... Press Ctrl+C to stop.")
+    legacy_clock = DeviceClockMapper()
+    next_status = time.monotonic() + STATUS_EVERY_S
     try:
         while True:
-            data, addr = sock.recvfrom(4096)
-            count += 1
-            text = data.decode('utf-8', errors='ignore').strip()
-            
-            # Debug output (commented out for silent streaming)
-            # if count % 50 == 1:
-            #     print(f"[UDP Packet #{count}] Received from {addr[0]}: {text[:60]}")
-
-            # 1. Try JSON parsing
-            if text.startswith('{'):
+            try:
+                data, addr = sock.recvfrom(4096)
+            except socket.timeout:
+                data = None
+            if data is not None:
+                arrival = local_clock()
+                text = data.decode('utf-8', errors='ignore').strip()
                 try:
-                    payload = json.loads(text)
-                    if 'accel' in payload and 'gyro' in payload:
-                        ax, ay, az = payload['accel']
-                        gx, gy, gz = payload['gyro']
-                        imu_outlet.push_sample([ax, ay, az, gx, gy, gz])
-                    if 'heart_rate' in payload:
-                        hr = payload['heart_rate']
-                        conf = payload.get('confidence', 100.0)
-                        ppg_outlet.push_sample([hr, conf])
-                    continue
-                except (json.JSONDecodeError, KeyError):
-                    pass
+                    packet = parse_packet(text)
+                except ValueError as e:
+                    print(f"[-] Bad W2 packet from {addr[0]}: {e}")
+                    packet = None
+                else:
+                    if packet is None:
+                        handle_legacy_udp(text, legacy, legacy_clock)
+                if packet is not None:
+                    registry.handle(packet, arrival)
 
-            # 2. Try CSV parsing
-            #    accX,accY,accZ,gyroX,gyroY,gyroZ,hr[,touchX,touchY,isTouched,timestampNs]
-            parts = text.split(',')
-            if len(parts) >= 6:
-                try:
-                    vals = [float(p.strip()) for p in parts if p.strip()]
-                    if len(vals) >= 6:
-                        # Newer watch app sends the sensor timestamp; older builds fall back to arrival time
-                        stamp = clock.map(vals[10] * 1e-9) if len(vals) >= 11 else local_clock()
-                        imu_outlet.push_sample(vals[:6], stamp)
-                        if len(vals) >= 7:
-                            ppg_outlet.push_sample([vals[6], 100.0], stamp)
-                except ValueError:
-                    pass
+            if time.monotonic() >= next_status:
+                print_status(registry)
+                next_status = time.monotonic() + STATUS_EVERY_S
 
     except KeyboardInterrupt:
         print("\n[*] UDP server stopped.")
@@ -205,9 +244,10 @@ def run_udp_server(host, port, imu_outlet, ppg_outlet):
         sock.close()
 
 
-async def handle_ws_client(websocket, imu_outlet, ppg_outlet):
+async def handle_ws_client(websocket, legacy):
     """Handle incoming WebSocket messages (e.g. from Sensor Logger app)."""
     print(f"[+] Client connected from {websocket.remote_address}")
+    imu_outlet, ppg_outlet = legacy.get()
     try:
         async for message in websocket:
             try:
@@ -235,10 +275,10 @@ async def handle_ws_client(websocket, imu_outlet, ppg_outlet):
         print(f"[*] Client disconnected: {websocket.remote_address}")
 
 
-async def main_ws(host, port, imu_outlet, ppg_outlet):
+async def main_ws(host, port, legacy):
     print(f"\n[+] Starting WebSocket server on ws://{host}:{port}...")
     print("    Connect your Sensor Logger app to this endpoint.")
-    async with websockets.serve(lambda ws: handle_ws_client(ws, imu_outlet, ppg_outlet), host, port):
+    async with websockets.serve(lambda ws: handle_ws_client(ws, legacy), host, port):
         await asyncio.Future()  # run forever
 
 
@@ -254,11 +294,11 @@ def get_local_ip():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Smartwatch PPG & IMU to LSL Bridge")
+    parser = argparse.ArgumentParser(description="Smartwatch / wearable PPG & IMU to LSL Bridge")
     parser.add_argument('--mode', choices=['websocket', 'udp'], default='websocket', help="Transport protocol")
     parser.add_argument('--host', default='0.0.0.0', help="Host IP to bind")
     parser.add_argument('--port', type=int, default=8080, help="Port to listen on")
-    parser.add_argument('--mock', action='store_true', help="Run synthetic mock stream for testing")
+    parser.add_argument('--mock', action='store_true', help="Simulate four W2 devices for testing")
 
     args = parser.parse_args()
 
@@ -269,18 +309,19 @@ def main():
     print(f"Local IP for Watch Connection: {local_ip}")
     print("=" * 70)
 
-    imu_outlet, ppg_outlet = create_lsl_outlets()
+    registry = DeviceRegistry()
+    legacy = LegacyOutlets()
 
     if args.mock:
-        run_mock_stream(imu_outlet, ppg_outlet)
+        run_mock_stream(registry)
     elif args.mode == 'udp':
-        run_udp_server(args.host, args.port, imu_outlet, ppg_outlet)
+        run_udp_server(args.host, args.port, registry, legacy)
     elif args.mode == 'websocket':
         if not HAS_WEBSOCKETS:
             print("[-] 'websockets' package not installed. Run: `pip install websockets` or `uv add websockets`.")
             sys.exit(1)
         try:
-            asyncio.run(main_ws(args.host, args.port, imu_outlet, ppg_outlet))
+            asyncio.run(main_ws(args.host, args.port, legacy))
         except KeyboardInterrupt:
             print("\n[*] WebSocket server stopped.")
 
