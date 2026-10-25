@@ -21,6 +21,9 @@ import glob
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils.bids_wearables import read_wearable  # noqa: E402  (strict BIDS or older headered TSVs)
 from scipy import signal
 from scipy.stats import kurtosis, skew
 
@@ -264,8 +267,8 @@ def load_smartwatch_dataset():
     print(f"[+] Loaded Physio: {physio_path}")
     print(f"[+] Loaded Events: {events_path}")
 
-    df_motion = pd.read_csv(motion_path, sep='\t')
-    df_physio = pd.read_csv(physio_path, sep='\t')
+    df_motion = read_wearable(motion_path)
+    df_physio = read_wearable(physio_path)
     df_events = pd.read_csv(events_path, sep='\t')
 
     print(f"    Motion Samples: {len(df_motion)} | Physio Samples: {len(df_physio)} | Events: {len(df_events)}")

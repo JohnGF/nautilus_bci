@@ -17,6 +17,7 @@ if _parent_dir not in sys.path:
 import json
 import numpy as np
 import pandas as pd
+from utils.bids_wearables import find_wearable_file, read_wearable
 
 import mne
 from mne_bids import BIDSPath, read_raw_bids
@@ -202,21 +203,22 @@ def load_multimodal_dataset(bids_root="bids_baseline", sub="01", ses="02", task=
 
     # Load Smartwatch Motion & PPG
     ses_dir = os.path.join(bids_root, f"sub-{sub}", f"ses-{ses}")
-    motion_path = os.path.join(ses_dir, "motion", f"sub-{sub}_ses-{ses}_task-{task}_motion.tsv")
-    physio_path = os.path.join(ses_dir, "physio", f"sub-{sub}_ses-{ses}_task-{task}_physio.tsv")
+    # Strict BIDS (recorder >= this version) or the older headered motion/physio/ppg TSVs
+    motion_path = find_wearable_file(ses_dir, sub, ses, task, "motion")
+    physio_path = find_wearable_file(ses_dir, sub, ses, task, "physio")
 
     motion_feats = []
     physio_feats = []
 
-    has_motion = os.path.exists(motion_path)
-    has_physio = os.path.exists(physio_path)
+    has_motion = motion_path is not None
+    has_physio = physio_path is not None
 
     if has_motion:
-        df_m = pd.read_csv(motion_path, sep='\t')
+        df_m = read_wearable(motion_path)
         t_m = df_m['timestamp_sec'].values
         d_m = df_m.iloc[:, 1:].values
     if has_physio:
-        df_p = pd.read_csv(physio_path, sep='\t')
+        df_p = read_wearable(physio_path)
         t_p = df_p['timestamp_sec'].values
         d_p = df_p.iloc[:, 1:].values
 

@@ -68,3 +68,10 @@ def test_silent_device_is_given_up_on():
 
 def test_unknown_echo_is_ignored():
     assert DeviceSync().add_echo(12345, 0.0, 0.0, 1.0) is None
+
+
+def test_short_sessions_do_not_invent_drift():
+    sync = DeviceSync()
+    simulate(sync, 40, true_offset=5.0, drift=30e-6, rng=random.Random(4))
+    assert sync.synced and sync.slope == 0.0  # 4 bursts over 30 s: too short to trust a slope
+    assert abs(sync.offset(0.0) - 5.0) < sync.error_bound() + 1e-9

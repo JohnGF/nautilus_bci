@@ -19,6 +19,7 @@ if _parent_dir not in sys.path:
 import json
 import numpy as np
 import pandas as pd
+from utils.bids_wearables import find_wearable_file, read_wearable
 import matplotlib.pyplot as plt
 
 import mne
@@ -118,15 +119,15 @@ def analyze_baseline(bids_root="bids_baseline", sub="01", ses="02", task="video"
     # 2. Smartwatch Motion (IMU) Analysis
     # ---------------------------------------------------------
     ses_dir = os.path.join(bids_root, f"sub-{sub}", f"ses-{ses}")
-    motion_file = os.path.join(ses_dir, "motion", f"sub-{sub}_ses-{ses}_task-{task}_motion.tsv")
+    motion_file = find_wearable_file(ses_dir, sub, ses, task, "motion")
 
     print(f"\n[*] Checking Motion IMU file: {motion_file}")
-    if os.path.exists(motion_file):
-        df_motion = pd.read_csv(motion_file, sep='\t')
+    if motion_file is not None:
+        df_motion = read_wearable(motion_file)
         print(f"[+] Loaded Motion Data: {len(df_motion)} samples | Columns: {list(df_motion.columns)}")
 
         # Calculate accelerometer magnitude if 6 channels present (Accel XYZ + Gyro XYZ)
-        # Columns: timestamp_sec, ch_1, ch_2, ch_3, ch_4, ch_5, ch_6
+        # Columns: timestamp_sec, then Accel X/Y/Z, Gyro X/Y/Z (ch_1..ch_6 in older recordings)
         accel_cols = [c for c in df_motion.columns if c != 'timestamp_sec'][:3]
         if len(accel_cols) >= 3:
             accel_data = df_motion[accel_cols].values
@@ -151,14 +152,12 @@ def analyze_baseline(bids_root="bids_baseline", sub="01", ses="02", task="video"
     # ---------------------------------------------------------
     # 3. Smartwatch Physio (PPG) Analysis
     # ---------------------------------------------------------
-    physio_file = os.path.join(ses_dir, "physio", f"sub-{sub}_ses-{ses}_task-{task}_physio.tsv")
-    if not os.path.exists(physio_file):
-        # Check fallback ppg/ folder
-        physio_file = os.path.join(ses_dir, "ppg", f"sub-{sub}_ses-{ses}_task-{task}_ppg.tsv")
+    # Strict BIDS physio, or the older physio/ and ppg/ TSVs
+    physio_file = find_wearable_file(ses_dir, sub, ses, task, "physio")
 
     print(f"[*] Checking Physio/PPG file: {physio_file}")
-    if os.path.exists(physio_file):
-        df_ppg = pd.read_csv(physio_file, sep='\t')
+    if physio_file is not None:
+        df_ppg = read_wearable(physio_file)
         print(f"[+] Loaded PPG Data: {len(df_ppg)} samples | Columns: {list(df_ppg.columns)}")
 
         ppg_vals = df_ppg.iloc[:, 1].values  # First data column after timestamp

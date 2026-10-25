@@ -11,9 +11,11 @@ Connects to all active LSL streams on your local network:
   - Event Markers     (e.g., 'MotorImageryMarkers')
 
 Saves everything into a standardized Multimodal BIDS Dataset with aligned timestamps.
-Wearables get JSON/channels sidecars with their labels, units, device and body location;
-their raw device clock and the clock-sync exchanges go to sourcedata/ so
-refit_wearable_clocks.py can redo the clock fit offline over the whole session.
+Wearables are written as BIDS 1.9 motion (motion/*_tracksys-<stream>_motion.tsv) and
+physio (eeg|beh/*_recording-<stream>_physio.tsv.gz) with labels, units, device and body
+location in the sidecars; read them with utils.bids_wearables.read_wearable. Their raw
+device clock and the clock-sync exchanges go to sourcedata/ so refit_wearable_clocks.py
+can redo the clock fit offline over the whole session.
 
 Usage:
   uv run python multimodal_bids_recorder.py --duration 30 --sub 01 --ses 01 --task leftright
@@ -43,6 +45,8 @@ import mne
 import mne_bids
 from mne_bids import BIDSPath, write_raw_bids
 
+from utils.bids_wearables import TIMESTAMP_COLUMN, write_wearable
+
 
 WEARABLE_TYPES = ('IMU', 'PPG', 'TOUCH')
 CLOCKSYNC_TYPE = 'CLOCKSYNC'
@@ -70,12 +74,8 @@ def stream_metadata(info):
     }
 
 
-def wearable_category(sname, stype):
-    if stype == 'IMU' or 'imu' in sname.lower():
-        return 'motion'
-    if stype == 'PPG' or 'ppg' in sname.lower():
-        return 'ppg'
-    return stype.lower() if stype else 'ppg'
+def is_motion(sname, stype):
+    return stype == 'IMU' or 'imu' in sname.lower()
 
 
 def bids_label(sname):
@@ -83,7 +83,9 @@ def bids_label(sname):
 
 
 def motion_channel_row(label, unit, tracked_point):
-    """BIDS motion channels.tsv row: Accel_X -> component x, type ACCEL."""
+    """BIDS motion channels.tsv row: Accel_X -> component x, type ACCEL; timestamps are LATENCY."""
+    if label == TIMESTAMP_COLUMN:
+        return {'name': label, 'component': 'n/a', 'type': 'LATENCY', 'tracked_point': 'n/a', 'units': 's'}
     prefix, _, axis = label.rpartition('_')
     return {
         'name': label,
@@ -321,7 +323,7 @@ class MultimodalBIDSRecorder:
                 print(f"[+] Exported Standalone Events BIDS data to: {events_path}")
 
         # 2. Export wearable streams (IMU, PPG, touch) and their clock-sync data
-        self._export_wearables(sub_clean, ses_clean, task_name)
+        self._export_wearables(sub_clean, ses_clean, task_name, eeg_stream_name)
         self._export_clock_sync(sub_clean, ses_clean, task_name)
 
         print("=" * 70)
@@ -334,18 +336,20 @@ class MultimodalBIDSRecorder:
         source_dir = os.path.join(self.bids_root, "sourcedata", f"sub-{sub}", f"ses-{ses}")
         return bids_dir, source_dir
 
-    def _export_wearables(self, sub, ses, task):
-        """One TSV + JSON per wearable stream, a BIDS channels.tsv for motion, and the raw
-        device clock in sourcedata/. The TSV layout (timestamp_sec, then data columns) is
-        what the analysis scripts read, so the DeviceTime channel never goes into it."""
+    def _export_wearables(self, sub, ses, task, eeg_stream_name=None):
+        """Wearables as strict BIDS 1.9: IMU as motion (headerless TSV, channels.tsv, motion.json),
+        PPG/heart rate and touch as physio (headerless .tsv.gz next to the EEG, or in beh/).
+        timestamp_sec is the first column in both (a LATENCY channel for motion), so
+        utils.bids_wearables.read_wearable gives analysis code timestamp_sec + data columns.
+        The raw device clock goes to sourcedata/ instead."""
         bids_dir, source_dir = self._session_dirs(sub, ses)
-        wearables = {sname: wearable_category(sname, item['type']) for sname, item in self.streams.items()
-                     if item['type'] in WEARABLE_TYPES or 'Smartwatch' in sname}
-        category_counts = {}
-        for category in wearables.values():
-            category_counts[category] = category_counts.get(category, 0) + 1
+        eeg_stamps = self.timestamp_buffers.get(eeg_stream_name) if eeg_stream_name else None
+        # Physio belongs beside the data it accompanies: the EEG run if there is one
+        physio_folder = 'eeg' if eeg_stamps else 'beh'
+        wearables = [sname for sname, item in self.streams.items()
+                     if item['type'] in WEARABLE_TYPES or 'Smartwatch' in sname]
 
-        for sname, category in wearables.items():
+        for sname in wearables:
             item = self.streams[sname]
             if not self.data_buffers.get(sname):
                 continue
@@ -353,31 +357,57 @@ class MultimodalBIDSRecorder:
             timestamps = np.array(self.timestamp_buffers[sname])
             meta = stream_metadata(item['info'])
             labels = [c['label'] for c in meta['channels']]
+            units = {c['label']: c['unit'] or 'n/a' for c in meta['channels']}
             data_idx = [i for i, label in enumerate(labels) if label != DEVICE_TIME_LABEL]
-
-            base = f"sub-{sub}_ses-{ses}_task-{task}"
-            if category_counts[category] > 1:
-                # Several wearables (e.g. IMU_L_wrist, IMU_R_ankle) would overwrite each other;
-                # BIDS names them apart with tracksys- for motion and recording- otherwise
-                entity = 'tracksys' if category == 'motion' else 'recording'
-                base += f"_{entity}-{bids_label(sname)}"
-            out_folder = os.path.join(bids_dir, category)
-            os.makedirs(out_folder, exist_ok=True)
-            tsv_path = os.path.join(out_folder, f"{base}_{category}.tsv")
+            motion = is_motion(sname, item['type'])
 
             df = pd.DataFrame(data[:, data_idx], columns=[labels[i] for i in data_idx])
-            df.insert(0, 'timestamp_sec', timestamps)
-            df.to_csv(tsv_path, sep='\t', index=False)
+            df.insert(0, TIMESTAMP_COLUMN, timestamps)
+            duration = float(timestamps[-1] - timestamps[0]) if len(timestamps) > 1 else 0.0
+            effective = (len(timestamps) - 1) / duration if duration > 0 else 0.0
+
+            if motion:
+                entity, folder, suffix, ext = 'tracksys', 'motion', 'motion', '.tsv'
+            else:
+                entity, folder, suffix, ext = 'recording', physio_folder, 'physio', '.tsv.gz'
+            base = f"sub-{sub}_ses-{ses}_task-{task}_{entity}-{bids_label(sname)}"
+            out_folder = os.path.join(bids_dir, folder)
+            os.makedirs(out_folder, exist_ok=True)
+            data_path = os.path.join(out_folder, f"{base}_{suffix}{ext}")
+            write_wearable(data_path, df)
 
             sidecar = {
                 "TaskName": task,
-                "SamplingFrequency": item['srate'],
-                "StartTime": self.start_time_lsl,
-                "Columns": list(df.columns),
-                "Units": {"timestamp_sec": "s", **{labels[i]: meta['channels'][i]['unit'] or "n/a" for i in data_idx}},
-                "StreamName": sname,
-                "LSLSourceID": meta['source_id'],
+                # Wearables without a fixed rate (heart rate) report their measured rate
+                "SamplingFrequency": item['srate'] if item['srate'] > 0 else round(effective, 3),
+                "SamplingFrequencyEffective": round(effective, 3),
+                "RecordingDuration": round(duration, 3),
             }
+            if motion:
+                rows = [motion_channel_row(c, units.get(c, 'n/a'), meta['location']) for c in df.columns]
+                pd.DataFrame(rows).to_csv(os.path.join(out_folder, f"{base}_channels.tsv"),
+                                          sep='\t', index=False)
+                types = [r['type'] for r in rows]
+                sidecar.update({
+                    "TrackingSystemName": sname,
+                    "MotionChannelCount": len(rows),
+                    "ACCELChannelCount": types.count('ACCEL'),
+                    "GYROChannelCount": types.count('GYRO'),
+                })
+            else:
+                first = timestamps[0] if len(timestamps) else 0.0
+                sidecar.update({
+                    "Columns": list(df.columns),
+                    # BIDS: seconds from the first sample of the accompanying (EEG) data
+                    "StartTime": float(first - eeg_stamps[0]) if eeg_stamps else float(first),
+                })
+            sidecar.update({
+                "Units": {c: (units.get(c, 'n/a') if c != TIMESTAMP_COLUMN else 's') for c in df.columns},
+                "StreamName": sname,
+                "StreamType": item['type'],
+                "LSLSourceID": meta['source_id'],
+                "LSLStartTime": self.start_time_lsl,
+            })
             if meta['device_id']:
                 sidecar["DeviceID"] = meta['device_id']
             if meta['location']:
@@ -387,30 +417,33 @@ class MultimodalBIDSRecorder:
 
             if DEVICE_TIME_LABEL in labels:
                 # Raw device clock beside the live LSL timestamps: what refit_wearable_clocks.py needs
-                dev_folder = os.path.join(source_dir, category)
+                dev_folder = os.path.join(source_dir, folder)
                 os.makedirs(dev_folder, exist_ok=True)
                 dev_path = os.path.join(dev_folder, f"{base}_devicetime.tsv")
-                pd.DataFrame({'timestamp_sec': timestamps,
+                pd.DataFrame({TIMESTAMP_COLUMN: timestamps,
                               'device_time_s': data[:, labels.index(DEVICE_TIME_LABEL)]}
                              ).to_csv(dev_path, sep='\t', index=False, float_format='%.9f')
                 with open(dev_path.replace('.tsv', '.json'), 'w') as f:
                     json.dump({"DeviceID": meta['device_id'], "StreamName": sname,
-                               "DataFile": os.path.relpath(tsv_path, self.bids_root),
+                               "DataFile": os.path.relpath(data_path, self.bids_root),
                                "Description": "timestamp_sec as recorded live; device_time_s is the "
                                               "sample's raw device clock"}, f, indent=2)
                 sidecar["DeviceTimeFile"] = os.path.relpath(dev_path, self.bids_root)
 
-            with open(tsv_path.replace('.tsv', '.json'), 'w') as f:
+            with open(os.path.join(out_folder, f"{base}_{suffix}.json"), 'w') as f:
                 json.dump(sidecar, f, indent=2)
+            print(f"[+] Exported wearable {item['type']} '{sname}' to: {data_path}")
 
-            if category == 'motion':
-                # BIDS names channels.tsv after the recording, minus the datatype suffix
-                rows = [motion_channel_row(labels[i], meta['channels'][i]['unit'], meta['location'])
-                        for i in data_idx]
-                pd.DataFrame(rows).to_csv(os.path.join(out_folder, f"{base}_channels.tsv"),
-                                          sep='\t', index=False)
+        if wearables:
+            self._ensure_dataset_description()
 
-            print(f"[+] Exported wearable {item['type']} '{sname}' to: {tsv_path}")
+    def _ensure_dataset_description(self):
+        # MNE-BIDS writes it with the EEG; a wearables-only session needs one to be a valid dataset
+        path = os.path.join(self.bids_root, "dataset_description.json")
+        if not os.path.exists(path):
+            with open(path, 'w') as f:
+                json.dump({"Name": "Nautilus BCI multimodal recording", "BIDSVersion": "1.9.0",
+                           "DatasetType": "raw"}, f, indent=2)
 
     def _export_clock_sync(self, sub, ses, task):
         """Ping/echo exchanges per wearable to sourcedata/, on the same time axis as timestamp_sec."""
