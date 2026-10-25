@@ -17,8 +17,12 @@ from dataclasses import dataclass, field
 
 from pylsl import StreamInfo, StreamOutlet, local_clock
 
+from clock_sync import ECHO_KIND, DeviceSync, format_ping
+
 TAG = "W2"
 STATUS_KIND = "HB"  # heartbeat: sent, dropped, battery_pct; status only, not an LSL stream
+SYNC_CHANNELS = [("t1_ping_sent", "s_lsl"), ("t2_ping_received", "s_device"),
+                 ("t3_echo_sent", "s_device"), ("t4_echo_received", "s_lsl")]
 STALE_AFTER_S = 3.0
 SEQ_MOD = 2 ** 32
 SEQ_RESTART_GAP = 1000  # a jump this large means the device restarted, not that packets were lost
@@ -116,13 +120,15 @@ def format_packet(device_id, location, seq, kind, samples, srate=0.0):
     return f"{TAG}|{device_id}|{location}|{seq % SEQ_MOD}|{head}|{body}"
 
 
-def make_outlet(name, stream_type, source_id, srate, channels, device_id, location):
+def make_outlet(name, stream_type, source_id, srate, channels, device_id, location, channel_format="float32"):
     info = StreamInfo(name=name, type=stream_type, channel_count=len(channels),
-                      nominal_srate=srate, channel_format="float32", source_id=source_id)
+                      nominal_srate=srate, channel_format=channel_format, source_id=source_id)
     desc = info.desc()
     desc.append_child_value("device_id", device_id)
     desc.append_child_value("location", location)
     desc.append_child_value("protocol", TAG)
+    desc.append_child_value("clock_sync", "ping/echo offset+drift fit (see ClockSync_* stream); "
+                                          "min one-way offset until the first burst or for devices without echo")
     chans = desc.append_child("channels")
     for label, unit in channels:
         ch = chans.append_child("channel")
@@ -137,7 +143,10 @@ class Device:
     device_id: str
     location: str
     stream_suffix: str
-    clock: DeviceClockMapper = field(default_factory=DeviceClockMapper)
+    clock: DeviceClockMapper = field(default_factory=DeviceClockMapper)  # fallback without echo
+    sync: DeviceSync = field(default_factory=DeviceSync)
+    sync_outlet: object = None
+    addr: tuple = None
     outlets: dict = field(default_factory=dict)
     last_seq: int = None
     packets: int = 0
@@ -156,7 +165,7 @@ class DeviceRegistry:
         self.devices = {}
         self._last_status = time.monotonic()
 
-    def handle(self, packet, arrival=None):
+    def handle(self, packet, arrival=None, addr=None):
         arrival = local_clock() if arrival is None else arrival
         dev = self.devices.get(packet.device_id)
         if dev is None:
@@ -168,9 +177,15 @@ class DeviceRegistry:
         self._track_seq(dev, packet.seq)
         dev.packets += 1
         dev.last_seen = time.monotonic()
+        if addr is not None:
+            dev.addr = addr
+
+        if packet.kind == ECHO_KIND:
+            self._handle_echo(dev, packet, arrival)
+            return
 
         # Offset from the newest sample: the one with the least time sitting in the batch
-        offset = dev.clock.update(packet.samples[-1][0], arrival)
+        fallback = dev.clock.update(packet.samples[-1][0], arrival)
 
         if packet.kind == STATUS_KIND:
             values = packet.samples[-1][1]
@@ -182,8 +197,34 @@ class DeviceRegistry:
         if outlet is None:
             outlet = self._add_outlet(dev, packet)
         for t, values in packet.samples:
-            outlet.push_sample(values, t + offset)
+            offset = dev.sync.offset(t)
+            outlet.push_sample(values, t + (fallback if offset is None else offset))
         dev.samples[packet.kind] = dev.samples.get(packet.kind, 0) + len(packet.samples)
+
+    def next_ping(self, device_id, now):
+        """Ping payload to send to the device right now, or None. Call immediately before sendto,
+        with now = local_clock(), since now becomes t1."""
+        dev = self.devices.get(device_id)
+        if dev is None or dev.addr is None:
+            return None
+        ping_id = dev.sync.next_ping(now)
+        return None if ping_id is None else format_ping(ping_id).encode()
+
+    def _handle_echo(self, dev, packet, arrival):
+        t2, values = packet.samples[0]
+        if len(values) < 2:
+            return
+        t3 = t2 + values[1] * 1e-6  # device turnaround in microseconds
+        ex = dev.sync.add_echo(int(values[0]), t2, t3, arrival)
+        if ex is None:
+            return
+        if dev.sync_outlet is None:
+            # Raw exchanges, so the offset/drift fit can be redone offline over the whole session
+            dev.sync_outlet = self.outlet_factory(
+                f"ClockSync_{dev.stream_suffix}", "ClockSync", f"{dev.device_id}_ClockSync", 0.0,
+                SYNC_CHANNELS, dev.device_id, dev.location, channel_format="double64")
+            self.log(f"    LSL outlet 'ClockSync_{dev.stream_suffix}' (ping/echo exchanges)")
+        dev.sync_outlet.push_sample([ex.t1, ex.t2, ex.t3, ex.t4], ex.t4)
 
     def _add_device(self, packet):
         taken = {d.location for d in self.devices.values()}
@@ -232,6 +273,12 @@ class DeviceRegistry:
             batt = f"{dev.battery}%" if dev.battery is not None else "?"
             age = now - dev.last_seen
             state = "STALE" if age > STALE_AFTER_S else "ok"
+            if dev.sync.synced:
+                sync = f"sync ±{dev.sync.error_bound() * 1e3:.1f}ms drift {dev.sync.slope * 1e6:+.0f}ppm"
+            elif dev.sync.gave_up:
+                sync = "sync: no echo (fallback)"
+            else:
+                sync = "sync: pending"
             lines.append(f"  {dev.location:<10} {dev.device_id:<14} {state:<5} {rates:<28} "
-                         f"loss {loss:4.1f}%  batt {batt:>4}  seen {age:4.1f}s ago")
+                         f"loss {loss:4.1f}%  batt {batt:>4}  seen {age:4.1f}s ago  {sync}")
         return lines

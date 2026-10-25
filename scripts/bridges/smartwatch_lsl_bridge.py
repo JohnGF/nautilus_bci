@@ -37,6 +37,7 @@ import time
 import numpy as np
 from pylsl import StreamInfo, StreamOutlet, local_clock
 
+from clock_sync import ECHO_KIND, PING_PREFIX
 from wearable_protocol import DeviceClockMapper, DeviceRegistry, format_packet, parse_packet
 
 # Try importing websockets for websocket server mode
@@ -49,6 +50,7 @@ except ImportError:
 
 STATUS_EVERY_S = 5.0
 MOCK_LOCATIONS = ["L_wrist", "R_wrist", "L_ankle", "R_ankle"]
+MOCK_DRIFT = 30e-6  # device crystals run 30 ppm fast, so the drift fit has something to find
 
 
 def create_lsl_outlets():
@@ -111,16 +113,24 @@ class LegacyOutlets:
 
 
 def run_mock_stream(registry):
-    """Simulate four W2 devices through the real parse/registry path, each with its own clock."""
+    """Simulate four W2 devices through the real parse/registry path. Each has its own clock
+    (random origin, 30 ppm drift) and answers pings over a jittery simulated Wi-Fi link."""
     print("\n[+] Running in MOCK mode: " + ", ".join(MOCK_LOCATIONS))
     print("    Press Ctrl+C to stop.")
 
     sample_rate = 50.0
     batch = 5
     interval = batch / sample_rate
-    # Random clock origins prove each device is mapped onto LSL time independently
-    devices = [(f"mock-{loc}", loc, random.randint(0, 10 ** 12)) for loc in MOCK_LOCATIONS]
+    lsl0 = local_clock()
+    devices = [(f"mock-{loc}", loc, random.uniform(0, 1000.0)) for loc in MOCK_LOCATIONS]
     seq = {d[0]: 0 for d in devices}
+
+    def device_clock(clock0, lsl_t):
+        return clock0 + (lsl_t - lsl0) * (1 + MOCK_DRIFT)
+
+    def to_ns(t):
+        return int(round(t * 1e9))
+
     start = time.monotonic()
     next_status = start + STATUS_EVERY_S
     n = 0
@@ -132,7 +142,7 @@ def run_mock_stream(registry):
                 for k in range(batch):
                     t = (n * batch + k) / sample_rate
                     phase = MOCK_LOCATIONS.index(loc)
-                    samples.append((clock0 + int(t * 1e9), [
+                    samples.append((to_ns(device_clock(clock0, lsl0 + t)), [
                         np.sin(2 * np.pi * 1.0 * t + phase) * 0.5,
                         np.cos(2 * np.pi * 1.0 * t + phase) * 0.5,
                         9.81 + np.sin(2 * np.pi * 0.2 * t) * 0.1,
@@ -147,8 +157,20 @@ def run_mock_stream(registry):
                     packets.append(format_packet(device_id, loc, seq[device_id] + 1, "HR", [(t_ns, [hr])]))
                     packets.append(format_packet(device_id, loc, seq[device_id] + 2, "HB", [(t_ns, [n, 0, 90])]))
                 for p in packets:
-                    registry.handle(parse_packet(p))
+                    registry.handle(parse_packet(p), addr=("mock", 0))
                     seq[device_id] += 1
+
+                t1 = local_clock()
+                ping = registry.next_ping(device_id, t1)
+                if ping is not None:
+                    ping_id = int(ping.decode()[len(PING_PREFIX):])
+                    # Wi-Fi legs of 1-15 ms each, independently jittered, like a real link
+                    up, down, turnaround = random.uniform(1e-3, 15e-3), random.uniform(1e-3, 15e-3), 2e-4
+                    t2 = device_clock(clock0, t1 + up)
+                    echo = format_packet(device_id, loc, seq[device_id], ECHO_KIND,
+                                         [(to_ns(t2), [ping_id, turnaround * 1e6])])
+                    seq[device_id] += 1
+                    registry.handle(parse_packet(echo), arrival=t1 + up + turnaround + down)
             n += 1
             if time.monotonic() >= next_status:
                 print_status(registry)
@@ -232,7 +254,11 @@ def run_udp_server(host, port, registry, legacy):
                     if packet is None:
                         handle_legacy_udp(text, legacy, legacy_clock)
                 if packet is not None:
-                    registry.handle(packet, arrival)
+                    registry.handle(packet, arrival, addr)
+                    # Ping right after the device's own packet: its radio is still awake
+                    ping = registry.next_ping(packet.device_id, local_clock())
+                    if ping is not None:
+                        sock.sendto(ping, addr)
 
             if time.monotonic() >= next_status:
                 print_status(registry)

@@ -64,3 +64,20 @@ This document outlines the planned architecture, real-time DSP pipelines, and ex
   - Aligns and packages 32-channel EEG, Smartwatch PPG, and 6-DOF IMU into standard BIDS structure (`sub-XX/ses-YY/eeg/`).
 - [ ] **Automated Session Summary Reports**:
   - Auto-generate post-session HTML/Markdown quality reports (SNR, channel impedance summary, battery discharge rate, trial accuracy).
+
+---
+
+## 6. Timing & Clock Synchronization *(all LSL sources)*
+
+LSL aligns clocks between machines that run liblsl, but not the hop from a device into its bridge. Most bridges stamp samples with `local_clock()` when they reach the PC, so each stream carries its own transport delay and jitter. Across modalities, the alignment is only as good as the worst stream's timestamps.
+
+- [x] **Wearables: ping/echo clock sync** (`bridges/clock_sync.py`, [Wearable Protocol](docs/guides/wearable_protocol.md#timing)):
+  - NTP-style ping/echo per device, offset + drift fit, worst-case error bound per device, raw exchanges in a `ClockSync_*` stream for offline refits.
+- [ ] **Device-clock timestamps for every other bridge**. Where the device can't answer pings, fit `t = a + b·sample_counter` to the earliest-arrival envelope. That removes chunk and Bluetooth jitter and tracks the device crystal's drift; then measure the remaining fixed latency once with a hardware sync.
+  - **g.Nautilus EEG** (`gds_to_lsl.py`, `gpype_to_lsl.py`): `push_chunk(..., local_clock())` stamps each block at arrival, so USB/radio buffering is in the EEG timestamps. Since EEG is the reference for every other stream, fix this first. Check whether the GDS counter channel can drive the regression.
+  - **Artinis OctaMon fNIRS** (`artinis_to_lsl.py`): `local_clock()` per Bluetooth sample, so jitter is likely tens of ms.
+  - **Muse** (`muse-lsl`): check how muselsl builds timestamps from BLE packets, and whether its packet sample index can drive the regression.
+  - **Hikmicro thermal** (`hikmicro-lsl`): synthetic `start + i·delay` timestamps drift against the real frame clock; use camera frame times if the SDK exposes them.
+- [ ] **Shared `device_clock` package** (`DeviceClockMapper`, `DeviceSync`, counter regression) that every device repo imports, as part of the stream contract.
+- [ ] **Record the sync data**: export `ClockSync_*` streams with each BIDS session (`sourcedata/`), plus an offline refit tool.
+- [ ] **Automated sync check**: detect a stomp/clap at session start and end in every stream (EEG, IMUs, fNIRS) and report the cross-stream offset per session.

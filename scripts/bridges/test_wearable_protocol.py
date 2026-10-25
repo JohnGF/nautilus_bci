@@ -11,8 +11,9 @@ from wearable_protocol import (DeviceClockMapper, DeviceRegistry, format_packet,
 
 
 class FakeOutlet:
-    def __init__(self, name, stream_type, source_id, srate, channels, device_id, location):
+    def __init__(self, name, stream_type, source_id, srate, channels, device_id, location, channel_format="float32"):
         self.name, self.type, self.source_id, self.srate = name, stream_type, source_id, srate
+        self.channel_format = channel_format
         self.channels = channels
         self.pushed = []
 
@@ -23,8 +24,8 @@ class FakeOutlet:
 def make_registry():
     outlets = []
 
-    def factory(*args):
-        outlets.append(FakeOutlet(*args))
+    def factory(*args, **kwargs):
+        outlets.append(FakeOutlet(*args, **kwargs))
         return outlets[-1]
 
     return DeviceRegistry(outlet_factory=factory, log=lambda *_: None), outlets
@@ -120,3 +121,26 @@ def test_clock_mapper_takes_fastest_packet_in_window():
     assert clock.update(1.0, arrival=2.01) == pytest.approx(1.01)   # faster packet wins
     assert clock.update(2.0, arrival=3.20) == pytest.approx(1.01)   # slow packet ignored
     assert clock.update(20.0, arrival=21.03) == pytest.approx(1.03)  # old minimum aged out
+
+
+def test_echo_publishes_raw_exchanges_and_takes_over_timing():
+    registry, outlets = make_registry()
+    addr = ("10.0.0.5", 40000)
+    registry.handle(parse_packet("W2|a|L_wrist|0|HR|0,72"), arrival=100.0, addr=addr)
+    dev = registry.devices["a"]
+    # Device clock reads 0 when LSL reads 1000; every leg takes exactly 2 ms
+    now = 1000.0
+    for _ in range(40):
+        ping_id = int(registry.next_ping("a", now).decode().split("|")[1])
+        t2 = now + 0.002 - 1000.0
+        registry.handle(parse_packet(f"W2|a|L_wrist|1|ECHO|{round(t2 * 1e9)},{ping_id},100"),
+                        arrival=now + 0.0041, addr=addr)
+        now += 0.1
+    sync_outlet = next(o for o in outlets if o.type == "ClockSync")
+    assert (sync_outlet.name, sync_outlet.channel_format) == ("ClockSync_L_wrist", "double64")
+    assert len(sync_outlet.pushed) == 40
+    assert dev.sync.synced
+    # A data packet with a terrible arrival time is still placed by the ping/echo fit
+    registry.handle(parse_packet("W2|a|L_wrist|2|IMU|5000000000,0,0,0,0,0,0"), arrival=2000.0)
+    imu = next(o for o in outlets if o.type == "IMU")
+    assert imu.pushed[0][1] == pytest.approx(1005.0, abs=1e-6)
