@@ -20,15 +20,137 @@
             </div>
         </div>
 
-        <!-- Navigation Tabs -->
+        <!-- Navigation Tabs & Cascading Tasks Menu -->
         <nav class="nav-tabs">
             <button class="nav-tab-btn mirror-tab active" data-tab="mirror">🪞 Mirror Mode</button>
             <button class="nav-tab-btn" data-tab="headmap">📊 Scalp Headmap</button>
             <button class="nav-tab-btn" data-tab="oscilloscope">📈 Oscilloscope</button>
-            <button class="nav-tab-btn" data-tab="task3d">🚀 3D Task</button>
-            <button class="nav-tab-btn" data-tab="bids">📁 BIDS Recording</button>
+
+            <!-- Cascading Experimental Tasks Menu -->
+            <div id="cascadeMenuWrap" class="cascade-menu-wrap">
+                <button id="btnCascadeTrigger" class="nav-tab-btn cascade-trigger-btn" type="button" aria-haspopup="true" aria-expanded="false">
+                    <span id="cascadeTriggerIcon">⚡</span>
+                    <span id="cascadeTriggerLabel">Task: 3D Spatial Live</span>
+                    <span class="caret">▾</span>
+                </button>
+                <div id="cascadeDropdown" class="cascade-dropdown">
+                    <!-- Category 1: Motor Imagery & Kinematics -->
+                    <div class="cascade-item" data-category="motor">
+                        <div class="cascade-item-label">
+                            <span class="cat-icon">🕹️</span>
+                            <div class="cat-info">
+                                <div class="cat-title">Motor Imagery &amp; Kinematics</div>
+                                <div class="cat-desc">3D Flight, 4-Class Limbs &amp; Rhythm</div>
+                            </div>
+                        </div>
+                        <span class="cat-badge">5</span>
+                        <span class="item-arrow">▶</span>
+                        <div class="cascade-submenu">
+                            <div class="sub-item active" data-task="spatial3d" data-mode="phase2" data-tab="task3d">
+                                <div class="sub-item-header">
+                                    <span class="sub-item-icon">⚡</span>
+                                    <strong class="sub-item-title">3D Spatial: Phase 2 Live BCI Control</strong>
+                                </div>
+                                <span class="sub-item-desc">Real-time SMR neurofeedback vehicle steering</span>
+                            </div>
+                            <div class="sub-item" data-task="spatial3d" data-mode="phase1" data-tab="task3d">
+                                <div class="sub-item-header">
+                                    <span class="sub-item-icon">🚀</span>
+                                    <strong class="sub-item-title">3D Spatial: Phase 1 Guided Cues</strong>
+                                </div>
+                                <span class="sub-item-desc">Surge, Sway, Heave &amp; Bank calibration trials</span>
+                            </div>
+                            <div class="sub-item" data-task="spatial3d" data-mode="freeflight" data-tab="task3d">
+                                <div class="sub-item-header">
+                                    <span class="sub-item-icon">🌌</span>
+                                    <strong class="sub-item-title">3D Spatial: Free Flight Simulator</strong>
+                                </div>
+                                <span class="sub-item-desc">Open space vehicle exploration</span>
+                            </div>
+                            <div class="sub-item" data-task="leftright" data-mode="4class" data-tab="motorimagery">
+                                <div class="sub-item-header">
+                                    <span class="sub-item-icon">🎯</span>
+                                    <strong class="sub-item-title">4-Direction Limb Movement</strong>
+                                </div>
+                                <span class="sub-item-desc">Left Hand, Right Hand, Feet, Tongue</span>
+                            </div>
+                            <div class="sub-item" data-task="fnf" data-mode="rhythm" data-tab="motorimagery">
+                                <div class="sub-item-header">
+                                    <span class="sub-item-icon">🎶</span>
+                                    <strong class="sub-item-title">Friday Night Funkin' Rhythm Battle</strong>
+                                </div>
+                                <span class="sub-item-desc">Arrow synchronization neuro-gaming</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Category 2: Music & Auditory Imagery -->
+                    <div class="cascade-item" data-category="music">
+                        <div class="cascade-item-label">
+                            <span class="cat-icon">🎵</span>
+                            <div class="cat-info">
+                                <div class="cat-title">Music &amp; Auditory Imagery</div>
+                                <div class="cat-desc">4 Elements &amp; Audio Calibration</div>
+                            </div>
+                        </div>
+                        <span class="cat-badge">2</span>
+                        <span class="item-arrow">▶</span>
+                        <div class="cascade-submenu">
+                            <div class="sub-item" data-task="music_memory" data-mode="recall" data-tab="musicmemory">
+                                <div class="sub-item-header">
+                                    <span class="sub-item-icon">🎼</span>
+                                    <strong class="sub-item-title">6-Track Music Memory Recall</strong>
+                                </div>
+                                <span class="sub-item-desc">Fire, Water, Wind, Electricity compositions</span>
+                            </div>
+                            <div class="sub-item" data-task="music_memory" data-mode="calibrator" data-tab="musicmemory">
+                                <div class="sub-item-header">
+                                    <span class="sub-item-icon">🎛️</span>
+                                    <strong class="sub-item-title">Companion Audio Loop Calibrator</strong>
+                                </div>
+                                <span class="sub-item-desc">Continuous offset seek &amp; tempo studio</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Category 3: Passive & Evoked Baselines -->
+                    <div class="cascade-item" data-category="baseline">
+                        <div class="cascade-item-label">
+                            <span class="cat-icon">👁️</span>
+                            <div class="cat-info">
+                                <div class="cat-title">Passive &amp; Evoked Baselines</div>
+                                <div class="cat-desc">Alpha Reactivity &amp; Slideshow</div>
+                            </div>
+                        </div>
+                        <span class="cat-badge">2</span>
+                        <span class="item-arrow">▶</span>
+                        <div class="cascade-submenu">
+                            <div class="sub-item" data-task="resting" data-mode="eyes" data-tab="baseline">
+                                <div class="sub-item-header">
+                                    <span class="sub-item-icon">👁️</span>
+                                    <strong class="sub-item-title">Eyes-Open / Eyes-Closed Baseline</strong>
+                                </div>
+                                <span class="sub-item-desc">Alpha peak reactivity calibration (O1/Oz)</span>
+                            </div>
+                            <div class="sub-item" data-task="video_resting" data-mode="slideshow" data-tab="baseline">
+                                <div class="sub-item-header">
+                                    <span class="sub-item-icon">🖼️</span>
+                                    <strong class="sub-item-title">Video &amp; Image Slideshow Paradigm</strong>
+                                </div>
+                                <span class="sub-item-desc">Static stimuli presentation &amp; rest intervals</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button class="nav-tab-btn" data-tab="bids">📁 BIDS Studio</button>
             <button class="nav-tab-btn" data-tab="hardware">⚙️ Hardware</button>
         </nav>
+
+        <div id="activeTaskBadge" class="current-task-pill">
+            <span>⚡ 3D Spatial: Phase 2 Live BCI</span>
+        </div>
 
         <!-- Status & Battery Indicators -->
         <div class="header-status">
@@ -157,6 +279,15 @@
         <!-- ── TAB 4: 3D SPATIAL NEUROFEEDBACK TASK ── -->
         <section id="tabPane-task3d" class="tab-pane">
             <div class="bci-card" style="padding: 10px;">
+                <div class="task-card-toolbar">
+                    <div class="sub-tab-pills">
+                        <button id="pillBtn-spatial-phase2" class="sub-pill-btn active" onclick="setSpatialSubMode('phase2')">⚡ Phase 2: Live BCI Control</button>
+                        <button id="pillBtn-spatial-phase1" class="sub-pill-btn" onclick="setSpatialSubMode('phase1')">🚀 Phase 1: Guided Cues</button>
+                        <button id="pillBtn-spatial-freeflight" class="sub-pill-btn" onclick="setSpatialSubMode('freeflight')">🌌 Free Flight Simulator</button>
+                    </div>
+                    <div id="spatialTaskBadge" class="status-pill-sub">SMR Closed-Loop Active</div>
+                </div>
+
                 <div id="threeViewportWrap" class="threejs-viewport-wrap">
                     <canvas id="taskGlCanvas"></canvas>
 
@@ -172,6 +303,302 @@
                         <div class="hud-panel">
                             <div style="font-size: 11px; color: var(--text-secondary);">STEERING (C4 - C3)</div>
                             <div id="hudSteeringText" style="font-size: 13px; font-weight: bold; color: var(--accent-green);">CENTERED</div>
+                        </div>
+                        <!-- Phase 1 Guided Cue Banner -->
+                        <div id="phase1CueBanner" class="phase1-cue-banner" style="display: none;">
+                            <div id="phase1TargetText" class="phase1-target-prompt">SURGE FORWARD</div>
+                            <div id="phase1CueSub" class="phase1-target-sub">Both Hands Motor Imagery</div>
+                            <div class="cue-countdown-bar"><div id="phase1CueProgress" class="cue-countdown-fill"></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── TAB 5: MOTOR IMAGERY & KINEMATICS (4-CLASS & FNF) ── -->
+        <section id="tabPane-motorimagery" class="tab-pane">
+            <div class="bci-card">
+                <div class="card-header">
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <span class="card-title">🕹️ Motor Imagery &amp; Kinematics Studio</span>
+                        <div class="sub-tab-pills">
+                            <button id="pillBtn-4class" class="sub-pill-btn active" onclick="setMotorSubMode('4class')">🎯 4-Class Limb Movement</button>
+                            <button id="pillBtn-fnf" class="sub-pill-btn" onclick="setMotorSubMode('fnf')">🎶 Friday Night Funkin' Battle</button>
+                        </div>
+                    </div>
+                    <span id="motorTrialBadge" class="status-pill-sub">Standby</span>
+                </div>
+
+                <!-- 4-Class Limb Directional Cue View -->
+                <div id="motorView-4class" class="paradigm-view-container">
+                    <div class="cue-stage-arena">
+                        <div class="arena-top-cue">
+                            <div id="cueArrowUp" class="directional-cue-node">
+                                <span class="node-arrow">⬆️</span>
+                                <span class="node-label">TONGUE / HEAD</span>
+                            </div>
+                        </div>
+                        <div class="arena-middle-row">
+                            <div id="cueArrowLeft" class="directional-cue-node">
+                                <span class="node-arrow">⬅️</span>
+                                <span class="node-label">LEFT HAND</span>
+                            </div>
+                            <div class="central-fixation-node">
+                                <div id="fixationCross" class="fixation-cross">+</div>
+                                <div id="cuePhaseNotice" class="cue-phase-notice">READY</div>
+                            </div>
+                            <div id="cueArrowRight" class="directional-cue-node">
+                                <span class="node-arrow">➡️</span>
+                                <span class="node-label">RIGHT HAND</span>
+                            </div>
+                        </div>
+                        <div class="arena-bottom-cue">
+                            <div id="cueArrowDown" class="directional-cue-node">
+                                <span class="node-arrow">⬇️</span>
+                                <span class="node-label">BOTH FEET</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ERD Lateralization Gauge & Controls -->
+                    <div class="cue-control-deck">
+                        <div class="cue-lateral-metric">
+                            <div class="metric-header">
+                                <span>C3 / C4 Motor Cortex ERD Lateralization</span>
+                                <span id="erdLateralVal">0.00</span>
+                            </div>
+                            <div class="erd-gauge-track">
+                                <div class="erd-gauge-center"></div>
+                                <div id="erdGaugeBar" class="erd-gauge-fill" style="width: 50%;"></div>
+                            </div>
+                            <div class="erd-labels">
+                                <span>Left Hand (C4 Active)</span>
+                                <span>Centered</span>
+                                <span>Right Hand (C3 Active)</span>
+                            </div>
+                        </div>
+                        <div class="cue-action-buttons">
+                            <button id="btnStartMotorBlock" class="btn-primary" onclick="toggleMotorImageryBlock()">
+                                ▶ Start Calibration Block (40 Trials)
+                            </button>
+                            <button class="btn-secondary" onclick="resetMotorImageryBlock()">
+                                🔄 Reset Block
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Friday Night Funkin' Rhythm Battle View -->
+                <div id="motorView-fnf" class="paradigm-view-container" style="display: none;">
+                    <div class="fnf-battle-arena">
+                        <div class="fnf-highway-container">
+                            <div class="fnf-receptors-row">
+                                <div class="fnf-receptor lane-left" data-lane="0">⬅️</div>
+                                <div class="fnf-receptor lane-down" data-lane="1">⬇️</div>
+                                <div class="fnf-receptor lane-up" data-lane="2">⬆️</div>
+                                <div class="fnf-receptor lane-right" data-lane="3">➡️</div>
+                            </div>
+                            <canvas id="fnfHighwayCanvas" class="fnf-canvas" width="320" height="380"></canvas>
+                        </div>
+                        <div class="fnf-hud-panel">
+                            <div class="fnf-score-display">
+                                <div class="score-label">SCORE</div>
+                                <div id="fnfScoreVal" class="score-num">000,000</div>
+                            </div>
+                            <div class="fnf-rating-banner" id="fnfRatingBanner">PRESS START</div>
+                            <div class="fnf-combo-display">
+                                <div class="score-label">COMBO</div>
+                                <div id="fnfComboVal" class="combo-num">0x</div>
+                            </div>
+                            <div class="fnf-controls-box">
+                                <button id="btnStartFnf" class="btn-primary" onclick="toggleFnfBattle()">
+                                    ▶ Start Rhythm Battle
+                                </button>
+                                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
+                                    Controls: SMR Lateralization or Keyboard (D / F / J / K)
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── TAB 6: MUSIC & AUDITORY IMAGERY (ELEMENTAL RECALL & CALIBRATOR) ── -->
+        <section id="tabPane-musicmemory" class="tab-pane">
+            <div class="bci-card">
+                <div class="card-header">
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <span class="card-title">🎵 Music &amp; Auditory Imagery Studio</span>
+                        <div class="sub-tab-pills">
+                            <button id="pillBtn-musicrecall" class="sub-pill-btn active" onclick="setMusicSubMode('recall')">🎼 6-Track Elemental Recall</button>
+                            <button id="pillBtn-calibrator" class="sub-pill-btn" onclick="setMusicSubMode('calibrator')">🎛️ Companion Audio Loop Calibrator</button>
+                        </div>
+                    </div>
+                    <span id="musicTrialBadge" class="status-pill-sub">Standby</span>
+                </div>
+
+                <!-- 6-Track Elemental Recall View -->
+                <div id="musicView-recall" class="paradigm-view-container">
+                    <div class="elements-card-grid">
+                        <!-- Element 1: Fire -->
+                        <div class="element-cue-card theme-fire" id="cardElement-fire">
+                            <div class="card-element-head">
+                                <span class="element-icon">🔥</span>
+                                <div>
+                                    <h4 class="element-title">FIRE</h4>
+                                    <span class="element-tempo">140 BPM | Fast Arpeggios</span>
+                                </div>
+                            </div>
+                            <p class="element-desc">High arousal synth lead, driving kinetic pulses, harmonic intensity.</p>
+                            <button class="btn-element-play" onclick="playElementSound('fire')">▶ Listen Theme</button>
+                        </div>
+
+                        <!-- Element 2: Water -->
+                        <div class="element-cue-card theme-water" id="cardElement-water">
+                            <div class="card-element-head">
+                                <span class="element-icon">💧</span>
+                                <div>
+                                    <h4 class="element-title">WATER</h4>
+                                    <span class="element-tempo">85 BPM | Ambient Sine Flow</span>
+                                </div>
+                            </div>
+                            <p class="element-desc">Melodic resonant chords, gentle ocean acoustic swell, calm relaxation.</p>
+                            <button class="btn-element-play" onclick="playElementSound('water')">▶ Listen Theme</button>
+                        </div>
+
+                        <!-- Element 3: Wind -->
+                        <div class="element-cue-card theme-wind" id="cardElement-wind">
+                            <div class="card-element-head">
+                                <span class="element-icon">🌪️</span>
+                                <div>
+                                    <h4 class="element-title">WIND</h4>
+                                    <span class="element-tempo">100 BPM | Sweeping Harmonic Pads</span>
+                                </div>
+                            </div>
+                            <p class="element-desc">Filtered harmonic noise sweeps, ethereal breath atmospheric shifts.</p>
+                            <button class="btn-element-play" onclick="playElementSound('wind')">▶ Listen Theme</button>
+                        </div>
+
+                        <!-- Element 4: Electricity -->
+                        <div class="element-cue-card theme-electricity" id="cardElement-electricity">
+                            <div class="card-element-head">
+                                <span class="element-icon">⚡</span>
+                                <div>
+                                    <h4 class="element-title">ELECTRICITY</h4>
+                                    <span class="element-tempo">128 BPM | 16th-Note Sawtooth</span>
+                                </div>
+                            </div>
+                            <p class="element-desc">Rapid syncopated stabs, aggressive frequency modulation, sharp attacks.</p>
+                            <button class="btn-element-play" onclick="playElementSound('electricity')">▶ Listen Theme</button>
+                        </div>
+                    </div>
+
+                    <!-- Music Trial Sequence Controller -->
+                    <div class="cue-control-deck" style="margin-top: 14px;">
+                        <div style="flex: 1;">
+                            <div style="font-size: 13px; font-weight: bold; color: var(--text-primary); margin-bottom: 4px;">Auditory Imagery Protocol</div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">
+                                Stage 1: Active Stimulus Listening (5s) → Stage 2: Mental Auditory Imagery (5s) → Stage 3: Verification
+                            </div>
+                        </div>
+                        <div class="cue-action-buttons">
+                            <button id="btnStartMusicBlock" class="btn-primary" onclick="toggleMusicImageryBlock()">
+                                ▶ Run Trial Sequence
+                            </button>
+                            <button class="btn-secondary" onclick="stopAllAudio()">
+                                ⏹ Stop Audio
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Audio Loop Calibrator View -->
+                <div id="musicView-calibrator" class="paradigm-view-container" style="display: none;">
+                    <div class="calibrator-card-grid">
+                        <div class="form-group">
+                            <label class="form-label">Metronome Tempo: <span id="bpmDisplayVal" style="color: var(--accent-blue); font-weight: bold;">120 BPM</span></label>
+                            <input id="sliderBpm" type="range" class="form-range" min="60" max="180" value="120" oninput="updateCalibratorBpm(this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Stimulus Loop Offset (ms): <span id="offsetDisplayVal" style="color: var(--accent-green); font-weight: bold;">0 ms</span></label>
+                            <input id="sliderOffset" type="range" class="form-range" min="-150" max="150" value="0" oninput="updateCalibratorOffset(this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Audio Envelope Volume</label>
+                            <input id="sliderVol" type="range" class="form-range" min="0" max="100" value="70">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px; margin-top: 12px;">
+                        <button class="btn-secondary" onclick="toggleMetronomeAudio()">
+                            🔔 Toggle Audio Metronome
+                        </button>
+                        <button class="btn-secondary" onclick="showToast('Software event marker trigger dispatched to LSL!');">
+                            🏷️ Send Sample Marker Trigger
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── TAB 7: PASSIVE & EVOKED BASELINES ── -->
+        <section id="tabPane-baseline" class="tab-pane">
+            <div class="bci-card">
+                <div class="card-header">
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <span class="card-title">👁️ Passive &amp; Evoked Baselines</span>
+                        <div class="sub-tab-pills">
+                            <button id="pillBtn-eyes" class="sub-pill-btn active" onclick="setBaselineSubMode('eyes')">👁️ Eyes-Open / Eyes-Closed Protocol</button>
+                            <button id="pillBtn-slideshow" class="sub-pill-btn" onclick="setBaselineSubMode('slideshow')">🖼️ Visual Slideshow Paradigm</button>
+                        </div>
+                    </div>
+                    <span id="baselineStateBadge" class="status-pill-sub">Standby</span>
+                </div>
+
+                <!-- Eyes Open / Eyes Closed Protocol View -->
+                <div id="baselineView-eyes" class="paradigm-view-container">
+                    <div class="eyes-protocol-stage">
+                        <div id="eyesPromptRing" class="eyes-prompt-ring open-state">
+                            <div id="eyesPromptIcon" class="eyes-prompt-icon">👁️</div>
+                            <div id="eyesPromptText" class="eyes-prompt-text">EYES OPEN</div>
+                            <div id="eyesPromptTimer" class="eyes-prompt-timer">30s</div>
+                        </div>
+                    </div>
+                    <div class="cue-control-deck" style="margin-top: 14px;">
+                        <div style="flex: 1;">
+                            <div style="font-size: 13px; font-weight: bold; color: var(--text-primary); margin-bottom: 2px;">
+                                Live Berger Alpha Reactivity Ratio (Oz / O1)
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-secondary);" id="alphaReactivityText">
+                                Reactivity: 1.0x (Evaluating 8-12 Hz power modulation across blocks)
+                            </div>
+                        </div>
+                        <div class="cue-action-buttons">
+                            <button id="btnStartEyesBlock" class="btn-primary" onclick="toggleEyesProtocol()">
+                                ▶ Start 60s Protocol
+                            </button>
+                            <button class="btn-secondary" onclick="resetEyesProtocol()">
+                                🔄 Reset
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Slideshow View -->
+                <div id="baselineView-slideshow" class="paradigm-view-container" style="display: none;">
+                    <div class="slideshow-stage">
+                        <div id="slideshowBox" class="slideshow-box">
+                            <div class="slideshow-fixation">+</div>
+                        </div>
+                    </div>
+                    <div class="cue-control-deck" style="margin-top: 14px;">
+                        <div style="flex: 1; font-size: 12px; color: var(--text-secondary);">
+                            Alternates high-contrast visual geometric stimuli with 1.5s inter-stimulus intervals.
+                        </div>
+                        <div class="cue-action-buttons">
+                            <button class="btn-primary" onclick="toggleSlideshow()">
+                                ▶ Start Visual Slideshow
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -199,9 +626,11 @@
                         <label class="form-label">Experimental Task</label>
                         <select id="selectTaskName" class="form-select">
                             <option value="spatial3d">🚀 spatial3d (3D Spatial Motor Imagery)</option>
-                            <option value="leftright">🎮 leftright (Directional Motor Imagery)</option>
-                            <option value="music_memory">🎵 music_memory (Auditory Imagery)</option>
-                            <option value="video_resting">📹 video_resting (Baseline Resting State)</option>
+                            <option value="leftright">🎯 leftright (4-Class Directional Limb Movement)</option>
+                            <option value="fnf">🎶 fnf (Friday Night Funkin' Rhythm Battle)</option>
+                            <option value="music_memory">🎵 music_memory (Auditory Imagery &amp; Recall)</option>
+                            <option value="resting">👁️ resting (Eyes-Open / Eyes-Closed Baseline)</option>
+                            <option value="video_resting">🖼️ video_resting (Visual Slideshow Baseline)</option>
                         </select>
                     </div>
                     <div class="form-group">

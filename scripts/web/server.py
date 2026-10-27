@@ -271,8 +271,12 @@ class BCIWebRequestHandler(SimpleHTTPRequestHandler):
 
     def log_message(self, format, *args):
         # Silence routine static polling access logs to keep terminal readable
-        if "/api/telemetry" in (args[0] if len(args) > 0 else ""):
-            return
+        try:
+            msg = format % args if args else str(format)
+            if "/api/telemetry" in msg:
+                return
+        except Exception:
+            pass
         super().log_message(format, *args)
 
 

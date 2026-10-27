@@ -87,9 +87,287 @@ body {
 
 .nav-tabs {
     display: flex;
+    align-items: center;
     gap: 6px;
-    overflow-x: auto;
+    overflow-x: visible;
     padding: 2px;
+}
+
+/* ── Cascading Tasks Dropdown Menu ── */
+.cascade-menu-wrap {
+    position: relative;
+    display: inline-block;
+    z-index: 1000;
+}
+
+.cascade-trigger-btn {
+    background: #141C2B;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.cascade-trigger-btn:hover {
+    background-color: var(--bg-panel);
+    border-color: var(--accent-blue);
+    color: #FFFFFF;
+}
+
+.cascade-trigger-btn.active,
+.cascade-menu-wrap.active-task .cascade-trigger-btn {
+    background: linear-gradient(135deg, rgba(31, 111, 235, 0.25), rgba(31, 111, 235, 0.1));
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+    box-shadow: 0 0 10px rgba(31, 111, 235, 0.25);
+}
+
+.cascade-trigger-btn .caret {
+    font-size: 10px;
+    transition: transform 0.2s ease;
+    color: var(--text-secondary);
+}
+
+.cascade-menu-wrap.open .cascade-trigger-btn .caret {
+    transform: rotate(180deg);
+}
+
+.cascade-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    min-width: 310px;
+    background-color: #0B1019;
+    border: 1px solid #2B3A55;
+    border-radius: 8px;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85);
+    padding: 6px;
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 1100;
+    backdrop-filter: blur(16px);
+}
+
+.cascade-menu-wrap.open .cascade-dropdown {
+    display: flex;
+    animation: menuFadeIn 0.15s ease-out;
+}
+
+@keyframes menuFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.cascade-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.12s ease;
+    user-select: none;
+    gap: 8px;
+}
+
+.cascade-item:hover, .cascade-item.expanded {
+    background-color: #162030;
+    color: var(--accent-blue);
+}
+
+.cascade-item-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+
+.cat-icon {
+    font-size: 18px;
+}
+
+.cat-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.cat-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.cat-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
+.cat-badge {
+    background: #1F293D;
+    color: var(--accent-blue);
+    font-size: 10px;
+    font-family: var(--font-mono);
+    padding: 2px 6px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+}
+
+.cascade-item .item-arrow {
+    font-size: 10px;
+    color: var(--text-secondary);
+    transition: transform 0.15s ease;
+}
+
+.cascade-item.expanded .item-arrow {
+    transform: rotate(90deg);
+}
+
+/* Secondary Cascading Flyout Submenu */
+.cascade-submenu {
+    position: absolute;
+    top: 0;
+    left: 100%;
+    margin-left: 6px;
+    min-width: 320px;
+    background-color: #0B1019;
+    border: 1px solid #2B3A55;
+    border-radius: 8px;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85);
+    padding: 6px;
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 1101;
+    backdrop-filter: blur(16px);
+}
+
+/* Bridge to prevent hover loss over margin gap */
+.cascade-submenu::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -12px;
+    width: 14px;
+}
+
+/* Auto-flip left when near right edge */
+.cascade-menu-wrap.flip-submenus .cascade-submenu {
+    left: auto;
+    right: 100%;
+    margin-left: 0;
+    margin-right: 6px;
+}
+
+.cascade-menu-wrap.flip-submenus .cascade-submenu::before {
+    left: auto;
+    right: -12px;
+}
+
+.cascade-item:hover > .cascade-submenu,
+.cascade-item.expanded > .cascade-submenu {
+    display: flex;
+    animation: menuFadeIn 0.15s ease-out;
+}
+
+.sub-item {
+    padding: 9px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #C9D1D9;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    border-left: 3px solid transparent;
+}
+
+.sub-item:hover {
+    background-color: #1A263B;
+    color: #FFFFFF;
+}
+
+.sub-item.active {
+    background-color: rgba(31, 111, 235, 0.22);
+    color: var(--accent-blue);
+    border-left-color: var(--accent-blue);
+}
+
+.sub-item-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sub-item-icon {
+    font-size: 13px;
+}
+
+.sub-item-title {
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.sub-item-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: normal;
+    padding-left: 19px;
+}
+
+/* Mobile responsive cascading behavior */
+@media (max-width: 768px) {
+    .cascade-dropdown {
+        position: fixed;
+        top: 60px;
+        left: 10px;
+        right: 10px;
+        min-width: auto;
+        max-height: 80vh;
+        overflow-y: auto;
+    }
+
+    .cascade-submenu {
+        position: static;
+        margin-left: 0;
+        margin-top: 6px;
+        background-color: #121824;
+        box-shadow: none;
+        display: none;
+    }
+
+    .cascade-item.expanded > .cascade-submenu {
+        display: flex;
+    }
+}
+
+.current-task-pill {
+    background-color: rgba(31, 111, 235, 0.15);
+    border: 1px solid rgba(88, 166, 255, 0.35);
+    color: var(--accent-blue);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
 }
 
 .nav-tab-btn {
@@ -585,4 +863,573 @@ body {
 @keyframes slideIn {
     from { transform: translateX(100%); opacity: 0; }
     to { transform: translateX(0); opacity: 1; }
+}
+
+/* ==========================================================================
+   Paradigm Views & Interactive Task Controllers
+   ========================================================================== */
+
+/* Sub-Tab Pills Toolbar */
+.task-card-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.sub-tab-pills {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #0E1420;
+    padding: 3px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.sub-pill-btn {
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.sub-pill-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-panel);
+}
+
+.sub-pill-btn.active {
+    background: var(--accent-blue);
+    color: white;
+    box-shadow: 0 1px 6px rgba(88, 166, 255, 0.4);
+}
+
+.status-pill-sub {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: #141C2B;
+    color: var(--accent-blue);
+    border: 1px solid rgba(88, 166, 255, 0.3);
+}
+
+/* Phase 1 Guided Cue Banner in 3D Task */
+.phase1-cue-banner {
+    position: absolute;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(11, 16, 25, 0.92);
+    border: 2px solid var(--accent-blue);
+    border-radius: 8px;
+    padding: 10px 24px;
+    text-align: center;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+    pointer-events: auto;
+    z-index: 15;
+}
+
+.phase1-target-prompt {
+    font-size: 18px;
+    font-weight: 800;
+    color: #FFFFFF;
+    letter-spacing: 0.5px;
+}
+
+.phase1-target-sub {
+    font-size: 12px;
+    color: var(--accent-blue);
+    margin-top: 2px;
+}
+
+.cue-countdown-bar {
+    width: 180px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+    margin: 8px auto 0;
+    overflow: hidden;
+}
+
+.cue-countdown-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent-cyan);
+    transition: width 0.1s linear;
+}
+
+/* ── 4-Class Motor Imagery Arena ── */
+.paradigm-view-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 10px 0;
+}
+
+.cue-stage-arena {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 30px 20px;
+    background: radial-gradient(circle at center, #131B2A 0%, #0A0E17 80%);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+
+.arena-top-cue, .arena-bottom-cue {
+    display: flex;
+    justify-content: center;
+}
+
+.arena-middle-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 36px;
+    width: 100%;
+    max-width: 440px;
+}
+
+.directional-cue-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100px;
+    height: 80px;
+    background: var(--bg-card);
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    cursor: default;
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.directional-cue-node .node-arrow {
+    font-size: 26px;
+}
+
+.directional-cue-node .node-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin-top: 3px;
+    letter-spacing: 0.5px;
+}
+
+.directional-cue-node.active-cue {
+    border-color: var(--accent-green);
+    background: rgba(63, 185, 80, 0.18);
+    box-shadow: 0 0 24px rgba(63, 185, 80, 0.5);
+    transform: scale(1.18);
+}
+
+.directional-cue-node.active-cue .node-label {
+    color: #FFFFFF;
+}
+
+.central-fixation-node {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: #0E1524;
+    border: 2px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 16px rgba(0, 0, 0, 0.6);
+}
+
+.fixation-cross {
+    font-size: 36px;
+    font-weight: 900;
+    color: var(--text-muted);
+    line-height: 1;
+    transition: all 0.2s ease;
+}
+
+.fixation-cross.ready {
+    color: var(--accent-yellow);
+    transform: scale(1.2);
+}
+
+.fixation-cross.active {
+    color: var(--accent-green);
+    text-shadow: 0 0 12px var(--accent-green);
+    transform: scale(1.25);
+}
+
+.cue-phase-notice {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+}
+
+/* ERD Lateralization Gauge Deck */
+.cue-control-deck {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.cue-lateral-metric {
+    flex: 1;
+    min-width: 260px;
+}
+
+.metric-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+}
+
+.erd-gauge-track {
+    position: relative;
+    height: 8px;
+    background: #101622;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+}
+
+.erd-gauge-center {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.4);
+    z-index: 2;
+}
+
+.erd-gauge-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #FF7B72, #58A6FF);
+    transition: width 0.1s ease;
+}
+
+.erd-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.cue-action-buttons {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+/* ── Friday Night Funkin' Rhythm Battle ── */
+.fnf-battle-arena {
+    display: flex;
+    gap: 20px;
+    background: #080C14;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.fnf-highway-container {
+    width: 320px;
+    background: #0D131F;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+}
+
+.fnf-receptors-row {
+    display: flex;
+    position: absolute;
+    bottom: 12px;
+    left: 0;
+    right: 0;
+    justify-content: space-around;
+    padding: 0 10px;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.fnf-receptor {
+    width: 52px;
+    height: 52px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    background: rgba(14, 21, 33, 0.85);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    transition: all 0.08s ease;
+}
+
+.fnf-receptor.hit {
+    transform: scale(1.15);
+    border-color: #FFFFFF;
+    box-shadow: 0 0 18px rgba(255, 255, 255, 0.8);
+}
+
+.fnf-canvas {
+    display: block;
+    width: 320px;
+    height: 380px;
+}
+
+.fnf-hud-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    min-width: 220px;
+    text-align: center;
+}
+
+.fnf-score-display, .fnf-combo-display {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 20px;
+    width: 100%;
+}
+
+.score-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.score-num {
+    font-size: 24px;
+    font-family: var(--font-mono);
+    font-weight: 800;
+    color: var(--accent-blue);
+}
+
+.combo-num {
+    font-size: 24px;
+    font-family: var(--font-mono);
+    font-weight: 800;
+    color: var(--accent-cyan);
+}
+
+.fnf-rating-banner {
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--accent-yellow);
+    letter-spacing: 1.5px;
+    text-shadow: 0 0 12px rgba(210, 153, 34, 0.6);
+    min-height: 28px;
+}
+
+/* ── 6-Track Music Memory Recall Studio ── */
+.elements-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+.element-cue-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: all 0.2s ease;
+}
+
+.element-cue-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.theme-fire { border-color: rgba(255, 123, 114, 0.35); }
+.theme-fire:hover, .element-cue-card.active-fire {
+    border-color: #FF7B72;
+    box-shadow: 0 0 18px rgba(255, 123, 114, 0.35);
+}
+
+.theme-water { border-color: rgba(88, 166, 255, 0.35); }
+.theme-water:hover, .element-cue-card.active-water {
+    border-color: #58A6FF;
+    box-shadow: 0 0 18px rgba(88, 166, 255, 0.35);
+}
+
+.theme-wind { border-color: rgba(56, 239, 125, 0.35); }
+.theme-wind:hover, .element-cue-card.active-wind {
+    border-color: #38EF7D;
+    box-shadow: 0 0 18px rgba(56, 239, 125, 0.35);
+}
+
+.theme-electricity { border-color: rgba(210, 153, 34, 0.35); }
+.theme-electricity:hover, .element-cue-card.active-electricity {
+    border-color: #D29922;
+    box-shadow: 0 0 18px rgba(210, 153, 34, 0.35);
+}
+
+.card-element-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.element-icon {
+    font-size: 26px;
+}
+
+.element-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.element-tempo {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+.element-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    flex: 1;
+}
+
+.btn-element-play {
+    background: #162030;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    align-self: flex-start;
+}
+
+.btn-element-play:hover {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: #FFFFFF;
+}
+
+.calibrator-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    background: var(--bg-card);
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.form-range {
+    width: 100%;
+    accent-color: var(--accent-blue);
+    cursor: pointer;
+}
+
+/* ── Eyes Open / Eyes Closed Baseline Stage ── */
+.eyes-protocol-stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    background: radial-gradient(circle at center, #121A28 0%, #080C14 80%);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+
+.eyes-prompt-ring {
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid var(--border-color);
+    background: #0E1524;
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.7);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.eyes-prompt-ring.open-state {
+    border-color: var(--accent-green);
+    box-shadow: 0 0 32px rgba(63, 185, 80, 0.45);
+}
+
+.eyes-prompt-ring.closed-state {
+    border-color: var(--accent-purple);
+    box-shadow: 0 0 32px rgba(188, 133, 255, 0.45);
+}
+
+.eyes-prompt-icon {
+    font-size: 42px;
+}
+
+.eyes-prompt-text {
+    font-size: 15px;
+    font-weight: 800;
+    color: #FFFFFF;
+    margin-top: 6px;
+    letter-spacing: 0.5px;
+}
+
+.eyes-prompt-timer {
+    font-size: 22px;
+    font-family: var(--font-mono);
+    font-weight: 800;
+    color: var(--accent-blue);
+    margin-top: 4px;
+}
+
+.slideshow-stage {
+    height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #05070B;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+}
+
+.slideshow-fixation {
+    font-size: 48px;
+    font-weight: 900;
+    color: var(--text-secondary);
 }

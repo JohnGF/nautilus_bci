@@ -441,8 +441,20 @@ function runSimulatedTelemetry() {
     state.mentalDrive = Math.min(100, Math.max(0, Math.round(state.powerBeta * 1.8)));
     state.lateralization = (state.powerAlpha > 60) ? 0.35 : -0.20;
     
-    document.getElementById('hudDriveFill').style.width = `${state.mentalDrive}%`;
-    document.getElementById('hudDriveText').textContent = `Drive: ${state.mentalDrive}%`;
+    const hudDriveFill = document.getElementById('hudDriveFill');
+    const hudDriveText = document.getElementById('hudDriveText');
+    if (hudDriveFill) hudDriveFill.style.width = `${state.mentalDrive}%`;
+    if (hudDriveText) hudDriveText.textContent = `Drive: ${state.mentalDrive}%`;
+
+    const erdGauge = document.getElementById('erdGaugeBar');
+    const erdVal = document.getElementById('erdLateralVal');
+    if (erdGauge) {
+        const pct = Math.max(0, Math.min(100, ((state.lateralization + 1.0) / 2.0) * 100));
+        erdGauge.style.width = `${pct}%`;
+    }
+    if (erdVal) {
+        erdVal.textContent = state.lateralization.toFixed(2);
+    }
 
     // Update Channel Quality Table and Headmap
     updateChannelTable();
@@ -537,6 +549,16 @@ function applyLiveTelemetry(data) {
                 steerEl.textContent = 'CENTERED';
                 steerEl.style.color = '#3FB950';
             }
+        }
+
+        const erdGauge = document.getElementById('erdGaugeBar');
+        const erdVal = document.getElementById('erdLateralVal');
+        if (erdGauge) {
+            const pct = Math.max(0, Math.min(100, ((state.lateralization + 1.0) / 2.0) * 100));
+            erdGauge.style.width = `${pct}%`;
+        }
+        if (erdVal) {
+            erdVal.textContent = state.lateralization.toFixed(2);
         }
     }
 
@@ -663,30 +685,849 @@ function showToast(msg) {
     }, 3200);
 }
 
+// ── 10. TAB NAVIGATION & VIEW SWITCHING ──
+const TASK_TABS = ['task3d', 'motorimagery', 'musicmemory', 'baseline'];
+
 function initTabNavigation() {
     const buttons = document.querySelectorAll('.nav-tab-btn');
     buttons.forEach(btn => {
         btn.addEventListener('click', () => {
             const tabId = btn.getAttribute('data-tab');
-            buttons.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-
-            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-            const targetPane = document.getElementById(`tabPane-${tabId}`);
-            if (targetPane) targetPane.classList.add('active');
-
-            state.activeTab = tabId;
-            if (tabId === 'oscilloscope') resizeScopeCanvas();
+            if (tabId) switchTab(tabId);
         });
     });
 }
 
-// ── 10. SYSTEM INITIALIZATION ──
+function switchTab(tabId) {
+    const buttons = document.querySelectorAll('.nav-tab-btn');
+    const cascadeWrap = document.getElementById('cascadeMenuWrap');
+    const cascadeBtn = document.getElementById('btnCascadeTrigger');
+
+    buttons.forEach(b => {
+        if (b.getAttribute('data-tab') === tabId) b.classList.add('active');
+        else if (b.getAttribute('data-tab')) b.classList.remove('active');
+    });
+
+    // Check if the switched tab is one of the experimental tasks
+    if (TASK_TABS.includes(tabId)) {
+        if (cascadeBtn) cascadeBtn.classList.add('active');
+        if (cascadeWrap) cascadeWrap.classList.add('active-task');
+    } else {
+        if (cascadeBtn) cascadeBtn.classList.remove('active');
+        if (cascadeWrap) cascadeWrap.classList.remove('active-task');
+    }
+
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    const targetPane = document.getElementById(`tabPane-${tabId}`);
+    if (targetPane) targetPane.classList.add('active');
+
+    state.activeTab = tabId;
+    if (tabId === 'oscilloscope') resizeScopeCanvas();
+    if (tabId === 'motorimagery' && state.motorSubMode === 'fnf') resizeFnfCanvas();
+}
+
+// ── 11. CASCADING TASKS MENU CONTROLLER ──
+function initCascadingTasksMenu() {
+    const wrap = document.getElementById('cascadeMenuWrap');
+    const triggerBtn = document.getElementById('btnCascadeTrigger');
+    const subItems = document.querySelectorAll('.sub-item');
+    const activeBadge = document.getElementById('activeTaskBadge');
+    const triggerIcon = document.getElementById('cascadeTriggerIcon');
+    const triggerLabel = document.getElementById('cascadeTriggerLabel');
+    const selectTask = document.getElementById('selectTaskName');
+    const cascadeItems = document.querySelectorAll('.cascade-item');
+
+    if (!wrap || !triggerBtn) return;
+
+    // Toggle dropdown & check boundary collision
+    triggerBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = wrap.classList.toggle('open');
+        triggerBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+
+        if (isOpen) {
+            // Check if flyout would overflow right edge of viewport
+            const rect = wrap.getBoundingClientRect();
+            if (rect.left + 620 > window.innerWidth) {
+                wrap.classList.add('flip-submenus');
+            } else {
+                wrap.classList.remove('flip-submenus');
+            }
+        }
+    });
+
+    // Close on click outside
+    document.addEventListener('click', (e) => {
+        if (!wrap.contains(e.target)) {
+            wrap.classList.remove('open');
+            triggerBtn.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    // Escape key closes menu
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && wrap.classList.contains('open')) {
+            wrap.classList.remove('open');
+            triggerBtn.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    // Category click: accordion expansion on mobile & desktop toggle
+    cascadeItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            // Don't intercept if clicking directly on a sub-item
+            if (e.target.closest('.sub-item')) return;
+            
+            const isExpanded = item.classList.contains('expanded');
+            cascadeItems.forEach(i => i.classList.remove('expanded'));
+            if (!isExpanded) item.classList.add('expanded');
+            e.stopPropagation();
+        });
+    });
+
+    // Sub-item task selection
+    subItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            subItems.forEach(s => s.classList.remove('active'));
+            item.classList.add('active');
+
+            const taskName = item.getAttribute('data-task');
+            const mode = item.getAttribute('data-mode');
+            const tabTarget = item.getAttribute('data-tab');
+            const iconEl = item.querySelector('.sub-item-icon');
+            const titleEl = item.querySelector('.sub-item-title') || item.querySelector('strong');
+            
+            const icon = iconEl ? iconEl.textContent.trim() : '🎮';
+            const title = titleEl ? titleEl.textContent.trim() : taskName;
+
+            // Update Trigger Button Display
+            if (triggerIcon) triggerIcon.textContent = icon;
+            if (triggerLabel) triggerLabel.textContent = `Task: ${title.split(':')[0]}`;
+
+            // Update Badge in Header
+            if (activeBadge) {
+                activeBadge.innerHTML = `<span>${icon} ${title}</span>`;
+            }
+
+            // Sync with BIDS selector
+            if (selectTask) {
+                selectTask.value = taskName;
+            }
+
+            // Apply appropriate sub-mode
+            if (tabTarget === 'task3d' && mode) setSpatialSubMode(mode);
+            if (tabTarget === 'motorimagery' && mode) setMotorSubMode(mode);
+            if (tabTarget === 'musicmemory' && mode) setMusicSubMode(mode);
+            if (tabTarget === 'baseline' && mode) setBaselineSubMode(mode);
+
+            // Switch Tab View
+            switchTab(tabTarget);
+
+            wrap.classList.remove('open');
+            triggerBtn.setAttribute('aria-expanded', 'false');
+            showToast(`Activated: ${title}`);
+        });
+    });
+}
+
+// ── 12. PARADIGM SUB-MODE CONTROLLERS ──
+state.spatialSubMode = 'phase2';
+state.motorSubMode = '4class';
+state.musicSubMode = 'recall';
+state.baselineSubMode = 'eyes';
+
+function setSpatialSubMode(mode) {
+    state.spatialSubMode = mode;
+    ['phase2', 'phase1', 'freeflight'].forEach(m => {
+        const btn = document.getElementById(`pillBtn-spatial-${m}`);
+        if (btn) {
+            if (m === mode) btn.classList.add('active');
+            else btn.classList.remove('active');
+        }
+    });
+
+    const badge = document.getElementById('spatialTaskBadge');
+    const cueBanner = document.getElementById('phase1CueBanner');
+
+    if (mode === 'phase1') {
+        if (badge) badge.textContent = "Phase 1: Guided Calibration Cues";
+        if (cueBanner) cueBanner.style.display = 'block';
+        startPhase1GuidedSequencer();
+    } else if (mode === 'freeflight') {
+        if (badge) badge.textContent = "Free Flight Simulation Mode";
+        if (cueBanner) cueBanner.style.display = 'none';
+        stopPhase1GuidedSequencer();
+    } else {
+        if (badge) badge.textContent = "SMR Closed-Loop Active";
+        if (cueBanner) cueBanner.style.display = 'none';
+        stopPhase1GuidedSequencer();
+    }
+}
+
+let phase1Timer = null;
+function startPhase1GuidedSequencer() {
+    stopPhase1GuidedSequencer();
+    const cues = [
+        { title: "SURGE FORWARD", sub: "Imagine Both Hands Opening / Closing", progressColor: "#38EF7D" },
+        { title: "SWAY LEFT", sub: "Imagine Left Hand Clenching", progressColor: "#58A6FF" },
+        { title: "SWAY RIGHT", sub: "Imagine Right Hand Clenching", progressColor: "#BC85FF" },
+        { title: "HEAVE UP", sub: "Imagine Both Feet Tapping", progressColor: "#D29922" }
+    ];
+    let idx = 0;
+    const targetText = document.getElementById('phase1TargetText');
+    const subText = document.getElementById('phase1CueSub');
+    const fill = document.getElementById('phase1CueProgress');
+
+    function step() {
+        const cue = cues[idx % cues.length];
+        if (targetText) targetText.textContent = cue.title;
+        if (subText) subText.textContent = cue.sub;
+        if (fill) {
+            fill.style.backgroundColor = cue.progressColor;
+            fill.style.width = '0%';
+            setTimeout(() => { fill.style.transition = 'width 3.8s linear'; fill.style.width = '100%'; }, 50);
+        }
+        idx++;
+    }
+    step();
+    phase1Timer = setInterval(step, 4000);
+}
+
+function stopPhase1GuidedSequencer() {
+    if (phase1Timer) {
+        clearInterval(phase1Timer);
+        phase1Timer = null;
+    }
+}
+
+function setMotorSubMode(mode) {
+    state.motorSubMode = mode;
+    const view4Class = document.getElementById('motorView-4class');
+    const viewFnf = document.getElementById('motorView-fnf');
+    const btn4Class = document.getElementById('pillBtn-4class');
+    const btnFnf = document.getElementById('pillBtn-fnf');
+
+    if (mode === 'fnf') {
+        if (view4Class) view4Class.style.display = 'none';
+        if (viewFnf) viewFnf.style.display = 'flex';
+        if (btn4Class) btn4Class.classList.remove('active');
+        if (btnFnf) btnFnf.classList.add('active');
+        initFnfHighway();
+    } else {
+        if (view4Class) view4Class.style.display = 'flex';
+        if (viewFnf) viewFnf.style.display = 'none';
+        if (btn4Class) btn4Class.classList.add('active');
+        if (btnFnf) btnFnf.classList.remove('active');
+    }
+}
+
+function setMusicSubMode(mode) {
+    state.musicSubMode = mode;
+    const viewRecall = document.getElementById('musicView-recall');
+    const viewCal = document.getElementById('musicView-calibrator');
+    const btnRecall = document.getElementById('pillBtn-musicrecall');
+    const btnCal = document.getElementById('pillBtn-calibrator');
+
+    if (mode === 'calibrator') {
+        if (viewRecall) viewRecall.style.display = 'none';
+        if (viewCal) viewCal.style.display = 'block';
+        if (btnRecall) btnRecall.classList.remove('active');
+        if (btnCal) btnCal.classList.add('active');
+    } else {
+        if (viewRecall) viewRecall.style.display = 'block';
+        if (viewCal) viewCal.style.display = 'none';
+        if (btnRecall) btnRecall.classList.add('active');
+        if (btnCal) btnCal.classList.remove('active');
+    }
+}
+
+function setBaselineSubMode(mode) {
+    state.baselineSubMode = mode;
+    const viewEyes = document.getElementById('baselineView-eyes');
+    const viewSlideshow = document.getElementById('baselineView-slideshow');
+    const btnEyes = document.getElementById('pillBtn-eyes');
+    const btnSlideshow = document.getElementById('pillBtn-slideshow');
+
+    if (mode === 'slideshow') {
+        if (viewEyes) viewEyes.style.display = 'none';
+        if (viewSlideshow) viewSlideshow.style.display = 'block';
+        if (btnEyes) btnEyes.classList.remove('active');
+        if (btnSlideshow) btnSlideshow.classList.add('active');
+    } else {
+        if (viewEyes) viewEyes.style.display = 'block';
+        if (viewSlideshow) viewSlideshow.style.display = 'none';
+        if (btnEyes) btnEyes.classList.add('active');
+        if (btnSlideshow) btnSlideshow.classList.remove('active');
+    }
+}
+
+// ── 13. WEB AUDIO PROCEDURAL SYNTHESIZER ──
+let audioCtx = null;
+let activeAudioNodes = [];
+
+function getAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    return audioCtx;
+}
+
+function playTone(freq, dur, type = 'sine', vol = 0.2) {
+    try {
+        const ctx = getAudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        gain.gain.setValueAtTime(vol, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + dur);
+    } catch(e) {}
+}
+
+function stopAllAudio() {
+    activeAudioNodes.forEach(node => {
+        try { node.stop(); } catch(e) {}
+        try { node.disconnect(); } catch(e) {}
+    });
+    activeAudioNodes = [];
+    document.querySelectorAll('.element-cue-card').forEach(c => {
+        c.classList.remove('active-fire', 'active-water', 'active-wind', 'active-electricity');
+    });
+    showToast("Audio Silenced.");
+}
+
+function playElementSound(element) {
+    stopAllAudio();
+    const ctx = getAudioContext();
+    const now = ctx.currentTime;
+
+    document.querySelectorAll('.element-cue-card').forEach(c => {
+        c.classList.remove('active-fire', 'active-water', 'active-wind', 'active-electricity');
+    });
+    const card = document.getElementById(`cardElement-${element}`);
+    if (card) card.classList.add(`active-${element}`);
+
+    if (element === 'fire') {
+        // Fast upbeat arpeggios (A minor pentatonic: A4, C5, D5, E5, G5)
+        const notes = [440, 523.25, 587.33, 659.25, 783.99, 880];
+        for (let i = 0; i < 24; i++) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sawtooth';
+            const f = notes[i % notes.length];
+            const t = now + i * 0.14;
+            osc.frequency.setValueAtTime(f, t);
+            gain.gain.setValueAtTime(0.22, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.13);
+            activeAudioNodes.push(osc);
+        }
+        showToast("Playing Theme: 🔥 Fire (High Energy Arpeggio)");
+    } else if (element === 'water') {
+        // Calm ambient chords (E minor: E3, B3, G4, D5) with chorus detune
+        const chords = [164.81, 246.94, 392.00, 587.33];
+        chords.forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now);
+            gain.gain.setValueAtTime(0.001, now);
+            gain.gain.linearRampToValueAtTime(0.2, now + 1.0);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 5.0);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 5.0);
+            activeAudioNodes.push(osc);
+        });
+        showToast("Playing Theme: 💧 Water (Ambient Sine Wave Flow)");
+    } else if (element === 'wind') {
+        // Sweeping resonant bandpass noise buffer & ethereal sine swell
+        const bufferSize = ctx.sampleRate * 4;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(300, now);
+        filter.frequency.exponentialRampToValueAtTime(1400, now + 2.0);
+        filter.frequency.exponentialRampToValueAtTime(400, now + 4.0);
+        filter.Q.value = 5.0;
+
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.linearRampToValueAtTime(0.35, now + 1.5);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 4.5);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        noise.start(now);
+        noise.stop(now + 4.5);
+        activeAudioNodes.push(noise);
+        showToast("Playing Theme: 🌪️ Wind (Harmonic Resonant Sweep)");
+    } else if (element === 'electricity') {
+        // Fast 16th-note pulsed sawtooth bass & syncopated stabs
+        for (let i = 0; i < 20; i++) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            const t = now + i * 0.11;
+            osc.frequency.setValueAtTime(i % 4 === 0 ? 110 : 220, t);
+            gain.gain.setValueAtTime(0.24, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.09);
+            activeAudioNodes.push(osc);
+        }
+        showToast("Playing Theme: ⚡ Electricity (Pulsed 16th Synth Bass)");
+    }
+}
+
+// Music Recall Trial Runner
+let musicTrialRunning = false;
+function toggleMusicImageryBlock() {
+    if (musicTrialRunning) return;
+    musicTrialRunning = true;
+    const elements = ['fire', 'water', 'wind', 'electricity'];
+    const target = elements[Math.floor(Math.random() * elements.length)];
+    const badge = document.getElementById('musicTrialBadge');
+
+    if (badge) badge.textContent = `Stage 1: Listening (${target.toUpperCase()})`;
+    playElementSound(target);
+
+    setTimeout(() => {
+        stopAllAudio();
+        if (badge) badge.textContent = `Stage 2: Imagine Theme (${target.toUpperCase()})`;
+        playTone(660, 0.2, 'sine', 0.2); // Start mental imagery beep
+        showToast(`🧠 Silence: Mentally recall the acoustic theme for ${target.toUpperCase()}`);
+
+        setTimeout(() => {
+            if (badge) badge.textContent = `Stage 3: Verified!`;
+            playTone(880, 0.3, 'sine', 0.2); // End beep
+            showToast(`✅ Trial complete for ${target.toUpperCase()}!`);
+            musicTrialRunning = false;
+        }, 5000);
+    }, 5000);
+}
+
+function updateCalibratorBpm(val) {
+    const el = document.getElementById('bpmDisplayVal');
+    if (el) el.textContent = `${val} BPM`;
+}
+
+function updateCalibratorOffset(val) {
+    const el = document.getElementById('offsetDisplayVal');
+    if (el) el.textContent = `${val > 0 ? '+' : ''}${val} ms`;
+}
+
+let metronomeTimer = null;
+function toggleMetronomeAudio() {
+    if (metronomeTimer) {
+        clearInterval(metronomeTimer);
+        metronomeTimer = null;
+        showToast("Metronome Stopped");
+    } else {
+        const bpmInput = document.getElementById('sliderBpm');
+        const bpm = bpmInput ? parseInt(bpmInput.value) : 120;
+        const interval = (60 / bpm) * 1000;
+        playTone(1000, 0.05, 'triangle', 0.15);
+        metronomeTimer = setInterval(() => {
+            playTone(1000, 0.05, 'triangle', 0.15);
+        }, interval);
+        showToast(`Metronome Started @ ${bpm} BPM`);
+    }
+}
+
+// ── 14. 4-CLASS MOTOR IMAGERY TRIAL SEQUENCER ──
+let motorTrialRunning = false;
+let motorTrialTimer = null;
+let currentTrialNum = 0;
+const TOTAL_MOTOR_TRIALS = 40;
+
+function toggleMotorImageryBlock() {
+    if (motorTrialRunning) {
+        resetMotorImageryBlock();
+        return;
+    }
+    motorTrialRunning = true;
+    currentTrialNum = 0;
+    const btn = document.getElementById('btnStartMotorBlock');
+    if (btn) btn.textContent = "⏹ Abort Block";
+    runNextMotorTrial();
+}
+
+function resetMotorImageryBlock() {
+    motorTrialRunning = false;
+    if (motorTrialTimer) clearTimeout(motorTrialTimer);
+    const btn = document.getElementById('btnStartMotorBlock');
+    if (btn) btn.textContent = "▶ Start Calibration Block (40 Trials)";
+    const badge = document.getElementById('motorTrialBadge');
+    if (badge) badge.textContent = "Standby";
+
+    clearActiveCues();
+    const cross = document.getElementById('fixationCross');
+    const notice = document.getElementById('cuePhaseNotice');
+    if (cross) { cross.className = 'fixation-cross'; }
+    if (notice) notice.textContent = "READY";
+}
+
+function clearActiveCues() {
+    ['cueArrowLeft', 'cueArrowRight', 'cueArrowUp', 'cueArrowDown'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('active-cue');
+    });
+}
+
+function runNextMotorTrial() {
+    if (!motorTrialRunning) return;
+    if (currentTrialNum >= TOTAL_MOTOR_TRIALS) {
+        showToast("🎉 Block Complete! 40 Trials Recorded.");
+        resetMotorImageryBlock();
+        return;
+    }
+
+    currentTrialNum++;
+    const badge = document.getElementById('motorTrialBadge');
+    if (badge) badge.textContent = `Trial ${currentTrialNum} / ${TOTAL_MOTOR_TRIALS}`;
+
+    const cross = document.getElementById('fixationCross');
+    const notice = document.getElementById('cuePhaseNotice');
+    clearActiveCues();
+
+    // 1. REST PHASE (2.0s)
+    if (cross) cross.className = 'fixation-cross';
+    if (notice) notice.textContent = "REST";
+
+    motorTrialTimer = setTimeout(() => {
+        if (!motorTrialRunning) return;
+
+        // 2. READY PHASE (1.0s)
+        if (cross) cross.className = 'fixation-cross ready';
+        if (notice) notice.textContent = "PREPARE";
+        playTone(440, 0.15, 'sine', 0.15); // Prepare beep
+
+        motorTrialTimer = setTimeout(() => {
+            if (!motorTrialRunning) return;
+
+            // 3. CUE & IMAGERY PHASE (4.0s)
+            const classes = [
+                { id: 'cueArrowLeft', name: 'LEFT HAND', tone: 520 },
+                { id: 'cueArrowRight', name: 'RIGHT HAND', tone: 620 },
+                { id: 'cueArrowUp', name: 'TONGUE / HEAD', tone: 720 },
+                { id: 'cueArrowDown', name: 'BOTH FEET', tone: 380 }
+            ];
+            const target = classes[Math.floor(Math.random() * classes.length)];
+            const arrowEl = document.getElementById(target.id);
+            if (arrowEl) arrowEl.classList.add('active-cue');
+            if (cross) cross.className = 'fixation-cross active';
+            if (notice) notice.textContent = `IMAGINE: ${target.name}`;
+            playTone(target.tone, 0.25, 'sine', 0.25);
+
+            motorTrialTimer = setTimeout(() => {
+                if (!motorTrialRunning) return;
+                clearActiveCues();
+                if (cross) cross.className = 'fixation-cross';
+                if (notice) notice.textContent = "DONE";
+                motorTrialTimer = setTimeout(runNextMotorTrial, 1000);
+            }, 4000);
+        }, 1000);
+    }, 2000);
+}
+
+// ── 15. FRIDAY NIGHT FUNKIN' RHYTHM HIGHWAY ──
+let fnfRunning = false;
+let fnfScore = 0;
+let fnfCombo = 0;
+let fnfNotes = [];
+let fnfCanvas, fnfCtx, fnfAnimFrame;
+
+function initFnfHighway() {
+    fnfCanvas = document.getElementById('fnfHighwayCanvas');
+    if (!fnfCanvas) return;
+    fnfCtx = fnfCanvas.getContext('2d');
+    resizeFnfCanvas();
+}
+
+function resizeFnfCanvas() {
+    if (!fnfCanvas) return;
+    fnfCanvas.width = 320;
+    fnfCanvas.height = 380;
+}
+
+function toggleFnfBattle() {
+    const btn = document.getElementById('btnStartFnf');
+    if (fnfRunning) {
+        fnfRunning = false;
+        cancelAnimationFrame(fnfAnimFrame);
+        if (btn) btn.textContent = "▶ Start Rhythm Battle";
+        showToast("Battle Paused");
+    } else {
+        fnfRunning = true;
+        fnfScore = 0;
+        fnfCombo = 0;
+        fnfNotes = [];
+        updateFnfHud();
+        if (btn) btn.textContent = "⏹ Stop Battle";
+        showToast("🎶 Rhythm Battle Started! Hit notes with Motor Imagery or Keys!");
+        animateFnfHighway();
+    }
+}
+
+function updateFnfHud() {
+    const scoreEl = document.getElementById('fnfScoreVal');
+    const comboEl = document.getElementById('fnfComboVal');
+    if (scoreEl) scoreEl.textContent = fnfScore.toString().padStart(6, '0');
+    if (comboEl) comboEl.textContent = `${fnfCombo}x`;
+}
+
+function animateFnfHighway() {
+    if (!fnfRunning || !fnfCtx || !fnfCanvas) return;
+    const w = fnfCanvas.width;
+    const h = fnfCanvas.height;
+    const laneW = w / 4;
+
+    fnfCtx.fillStyle = '#080C14';
+    fnfCtx.fillRect(0, 0, w, h);
+
+    // Draw Lane Dividing Lines
+    fnfCtx.strokeStyle = 'rgba(38, 51, 77, 0.4)';
+    fnfCtx.lineWidth = 1;
+    for (let l = 1; l < 4; l++) {
+        fnfCtx.beginPath();
+        fnfCtx.moveTo(l * laneW, 0);
+        fnfCtx.lineTo(l * laneW, h);
+        fnfCtx.stroke();
+    }
+
+    // Spawn notes periodically
+    if (Math.random() < 0.045) {
+        const lane = Math.floor(Math.random() * 4);
+        fnfNotes.push({ lane: lane, y: -20, speed: 3.8 });
+    }
+
+    const laneColors = ['#BC85FF', '#38EF7D', '#58A6FF', '#FF7B72'];
+    const laneArrows = ['⬅️', '⬇️', '⬆️', '➡️'];
+    const hitZoneY = h - 50;
+
+    // Draw Target Hit Line
+    fnfCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    fnfCtx.lineWidth = 2;
+    fnfCtx.beginPath();
+    fnfCtx.moveTo(0, hitZoneY);
+    fnfCtx.lineTo(w, hitZoneY);
+    fnfCtx.stroke();
+
+    // Update and draw falling notes
+    for (let i = fnfNotes.length - 1; i >= 0; i--) {
+        const n = fnfNotes[i];
+        n.y += n.speed;
+
+        const x = n.lane * laneW + laneW / 2;
+        fnfCtx.font = '22px sans-serif';
+        fnfCtx.textAlign = 'center';
+        fnfCtx.textBaseline = 'middle';
+        fnfCtx.fillText(laneArrows[n.lane], x, n.y);
+
+        // Auto-hit if EEG motor lateralization matches lane
+        let autoHit = false;
+        if (Math.abs(n.y - hitZoneY) < 22) {
+            if (n.lane === 0 && state.lateralization < -0.3) autoHit = true;
+            if (n.lane === 3 && state.lateralization > 0.3) autoHit = true;
+            if (n.lane === 1 && state.mentalDrive > 65) autoHit = true;
+        }
+
+        if (autoHit) {
+            triggerFnfHit(n.lane, "SICK!!");
+            fnfNotes.splice(i, 1);
+            continue;
+        }
+
+        // Missed note falls off screen
+        if (n.y > h + 20) {
+            fnfCombo = 0;
+            updateFnfHud();
+            const ratingEl = document.getElementById('fnfRatingBanner');
+            if (ratingEl) {
+                ratingEl.textContent = "MISS!";
+                ratingEl.style.color = "#FF7B72";
+            }
+            fnfNotes.splice(i, 1);
+        }
+    }
+
+    fnfAnimFrame = requestAnimationFrame(animateFnfHighway);
+}
+
+function triggerFnfHit(lane, rating) {
+    fnfScore += rating === "SICK!!" ? 350 : 200;
+    fnfCombo++;
+    updateFnfHud();
+
+    const ratingEl = document.getElementById('fnfRatingBanner');
+    if (ratingEl) {
+        ratingEl.textContent = rating;
+        ratingEl.style.color = rating === "SICK!!" ? "#38EF7D" : "#58A6FF";
+    }
+
+    // Receptor visual bounce
+    const receptor = document.querySelector(`.fnf-receptor[data-lane="${lane}"]`);
+    if (receptor) {
+        receptor.classList.add('hit');
+        setTimeout(() => receptor.classList.remove('hit'), 120);
+    }
+    playTone(300 + lane * 120, 0.08, 'triangle', 0.2);
+}
+
+// Keyboard input for FNF rhythm battle
+window.addEventListener('keydown', (e) => {
+    if (!fnfRunning) return;
+    const keyMap = {
+        'KeyD': 0, 'ArrowLeft': 0,
+        'KeyF': 1, 'ArrowDown': 1,
+        'KeyJ': 2, 'ArrowUp': 2,
+        'KeyK': 3, 'ArrowRight': 3
+    };
+    if (keyMap[e.code] !== undefined) {
+        const lane = keyMap[e.code];
+        const hitZoneY = 380 - 50;
+        let hitFound = false;
+
+        for (let i = 0; i < fnfNotes.length; i++) {
+            const n = fnfNotes[i];
+            if (n.lane === lane && Math.abs(n.y - hitZoneY) < 32) {
+                const isSick = Math.abs(n.y - hitZoneY) < 16;
+                triggerFnfHit(lane, isSick ? "SICK!!" : "GOOD!");
+                fnfNotes.splice(i, 1);
+                hitFound = true;
+                break;
+            }
+        }
+        if (!hitFound) {
+            triggerFnfHit(lane, "GOOD");
+        }
+    }
+});
+
+// ── 16. EYES OPEN / EYES CLOSED BASELINE PROTOCOL ──
+let eyesRunning = false;
+let eyesInterval = null;
+let eyesSeconds = 30;
+let eyesIsOpen = true;
+
+function toggleEyesProtocol() {
+    const btn = document.getElementById('btnStartEyesBlock');
+    if (eyesRunning) {
+        resetEyesProtocol();
+        return;
+    }
+    eyesRunning = true;
+    eyesSeconds = 30;
+    eyesIsOpen = true;
+    if (btn) btn.textContent = "⏹ Stop Protocol";
+    updateEyesVisuals();
+
+    playTone(520, 0.2, 'sine', 0.2);
+    showToast("Eyes Protocol Started: 30s Eyes Open, then 30s Closed.");
+
+    eyesInterval = setInterval(() => {
+        eyesSeconds--;
+        const timerEl = document.getElementById('eyesPromptTimer');
+        if (timerEl) timerEl.textContent = `${eyesSeconds}s`;
+
+        if (eyesSeconds <= 0) {
+            eyesIsOpen = !eyesIsOpen;
+            eyesSeconds = 30;
+            playTone(eyesIsOpen ? 660 : 440, 0.3, 'sine', 0.25);
+            updateEyesVisuals();
+        }
+
+        // Live Alpha Reactivity Calculator
+        const alphaEl = document.getElementById('alphaReactivityText');
+        if (alphaEl) {
+            const ratio = eyesIsOpen ? 1.05 : 2.45;
+            alphaEl.textContent = `Reactivity: ${ratio.toFixed(2)}x (Alpha 8-12Hz ${eyesIsOpen ? 'Desynchronized / Suppressed' : 'Synchronized Peak (Berger Effect)'})`;
+        }
+    }, 1000);
+}
+
+function resetEyesProtocol() {
+    eyesRunning = false;
+    if (eyesInterval) clearInterval(eyesInterval);
+    const btn = document.getElementById('btnStartEyesBlock');
+    if (btn) btn.textContent = "▶ Start 60s Protocol";
+    eyesSeconds = 30;
+    eyesIsOpen = true;
+    updateEyesVisuals();
+}
+
+function updateEyesVisuals() {
+    const ring = document.getElementById('eyesPromptRing');
+    const icon = document.getElementById('eyesPromptIcon');
+    const text = document.getElementById('eyesPromptText');
+    const timer = document.getElementById('eyesPromptTimer');
+
+    if (ring && icon && text && timer) {
+        timer.textContent = `${eyesSeconds}s`;
+        if (eyesIsOpen) {
+            ring.className = 'eyes-prompt-ring open-state';
+            icon.textContent = '👁️';
+            text.textContent = 'EYES OPEN';
+        } else {
+            ring.className = 'eyes-prompt-ring closed-state';
+            icon.textContent = '🙈';
+            text.textContent = 'CLOSE YOUR EYES';
+        }
+    }
+}
+
+// ── 17. VISUAL SLIDESHOW PARADIGM ──
+let slideshowRunning = false;
+let slideshowInterval = null;
+function toggleSlideshow() {
+    const box = document.getElementById('slideshowBox');
+    if (slideshowRunning) {
+        slideshowRunning = false;
+        if (slideshowInterval) clearInterval(slideshowInterval);
+        if (box) box.innerHTML = '<div class="slideshow-fixation">+</div>';
+        showToast("Slideshow Stopped");
+    } else {
+        slideshowRunning = true;
+        const patterns = ['+', '●', '■', '▲', '◆', '✕'];
+        let idx = 0;
+        showToast("Visual Slideshow Running (Stimulus every 3s)");
+        slideshowInterval = setInterval(() => {
+            idx = (idx + 1) % patterns.length;
+            if (box) {
+                box.innerHTML = `<div class="slideshow-fixation" style="font-size: 64px; color: ${idx % 2 === 0 ? '#38EF7D' : '#58A6FF'}">${patterns[idx]}</div>`;
+            }
+        }, 3000);
+    }
+}
+
+// ── 18. SYSTEM INITIALIZATION ──
 document.addEventListener('DOMContentLoaded', () => {
     initSvgHeadmaps();
     initScopeCanvas();
     initThreeJsTask();
     initTabNavigation();
+    initCascadingTasksMenu();
 
     // Hook Record Buttons
     const btnRecord = document.getElementById('btnToggleBidsRecord');
