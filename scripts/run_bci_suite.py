@@ -136,7 +136,8 @@ class MiniEEGVisualizerWidget(QWidget):
             
         if self.inlet is None:
             try:
-                streams = resolve_streams(wait_time=0.2)
+                # Use 0.8s timeout to reliably discover multicast streams across LAN
+                streams = resolve_streams(wait_time=0.8)
                 eeg_streams = [s for s in streams if s.type().upper() == 'EEG' or 'NAUTILUS' in s.name().upper()]
                 if eeg_streams:
                     self.inlet = StreamInlet(eeg_streams[0], max_buflen=360)
