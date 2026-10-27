@@ -1620,18 +1620,34 @@ class Spatial3DTaskApp(BaseTaskApp):
             if not ch_names:
                 ch_names = [f"CH{i+1}" for i in range(info.channel_count())]
 
-            self.eeg_ch_names = ch_names
+            # g.Nautilus 32-channel standard 10-20 layout (GPYPE_32)
+            GPYPE_32 = [
+                "Fp1", "Fp2", "AF3", "AF4", "F7", "F3", "Fz", "F4", "F8",
+                "FC5", "FC1", "FC2", "FC6", "T7", "C3", "Cz", "C4", "T8",
+                "CP5", "CP1", "CP2", "CP6", "P7", "P3", "Pz", "P4", "P8",
+                "PO7", "PO3", "PO4", "PO8", "Oz",
+            ]
+
+            # If driver outputs generic numeric indices (e.g. ['CZ', '2', '3', ...]), map to GPYPE_32
+            has_1020 = any(n.upper() in ["C3", "C4", "P3", "P4", "OZ"] for n in ch_names)
+            if not has_1020 and len(ch_names) >= 32:
+                resolved_names = list(GPYPE_32)
+                if len(ch_names) > 32:
+                    resolved_names.extend(ch_names[32:])
+                self.eeg_ch_names = resolved_names
+            else:
+                self.eeg_ch_names = ch_names
 
             # Find motor cortex channels (C3, Cz, C4)
             def find_ch(target, fallback_idx):
-                for idx, name in enumerate(ch_names):
-                    if target in name:
+                for idx, name in enumerate(self.eeg_ch_names):
+                    if target.upper() == name.upper():
                         return idx
-                return fallback_idx if fallback_idx < len(ch_names) else 0
+                return fallback_idx if fallback_idx < len(self.eeg_ch_names) else 0
 
-            self.idx_c3 = find_ch("C3", 4)
-            self.idx_cz = find_ch("CZ", 5)
-            self.idx_c4 = find_ch("C4", 6)
+            self.idx_c3 = find_ch("C3", 14)
+            self.idx_cz = find_ch("Cz", 15)
+            self.idx_c4 = find_ch("C4", 16)
 
             # Design 50 Hz Notch and 8-30 Hz Mu/Beta Bandpass
             nyq = 0.5 * self.eeg_fs

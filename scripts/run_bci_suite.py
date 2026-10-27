@@ -150,6 +150,9 @@ class MiniEEGVisualizerWidget(QWidget):
                     if new_ch > 0 and new_ch != self.num_channels:
                         self.num_channels = new_ch
                         self.eeg_data = np.zeros((self.buf_samples, self.num_channels))
+                        if self.num_channels >= 32:
+                            # g.Nautilus GPYPE_32 standard layout: Cz=15, C3=14, C4=16, Oz=31
+                            self.ch_indices = [15, 14, 16, 31]
             except Exception:
                 self.inlet = None
 
