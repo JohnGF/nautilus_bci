@@ -32,6 +32,8 @@ from pylsl import StreamInlet, resolve_streams
 ELECTRODE_POSITIONS_1020 = {
     'Fp1': (-0.30,  0.80),
     'Fp2': ( 0.30,  0.80),
+    'AF3': (-0.25,  0.68),
+    'AF4': ( 0.25,  0.68),
     'F7':  (-0.75,  0.60),
     'F3':  (-0.40,  0.55),
     'Fz':  ( 0.00,  0.55),
@@ -59,6 +61,10 @@ ELECTRODE_POSITIONS_1020 = {
     'Pz':  ( 0.00, -0.55),
     'P4':  ( 0.40, -0.55),
     'P8':  ( 0.75, -0.60),
+    'PO7': (-0.60, -0.72),
+    'PO3': (-0.25, -0.72),
+    'PO4': ( 0.25, -0.72),
+    'PO8': ( 0.60, -0.72),
     'O1':  (-0.30, -0.80),
     'Oz':  ( 0.00, -0.80),
     'O2':  ( 0.30, -0.80),
@@ -190,6 +196,26 @@ class HeadmapQualityVisualizerWindow(QtWidgets.QMainWindow):
                 self.channel_names.append(ch.child_value("label"))
                 ch = ch.next_sibling()
 
+        # Map generic numeric names to standard g.Nautilus GPYPE_32 layout
+        GPYPE_32 = [
+            "Fp1", "Fp2", "AF3", "AF4", "F7", "F3", "Fz", "F4", "F8",
+            "FC5", "FC1", "FC2", "FC6", "T7", "C3", "Cz", "C4", "T8",
+            "CP5", "CP1", "CP2", "CP6", "P7", "P3", "Pz", "P4", "P8",
+            "PO7", "PO3", "PO4", "PO8", "Oz",
+        ]
+        has_1020 = any(n.upper() in ["C3", "C4", "P3", "P4", "OZ"] for n in self.channel_names)
+        if not has_1020 and len(self.channel_names) >= 32:
+            mapped_names = list(GPYPE_32)
+            if len(self.channel_names) > 32:
+                mapped_names.extend(self.channel_names[32:])
+            self.channel_names = mapped_names
+
+        # Design 50 Hz Notch and 1-35 Hz Bandpass filters
+        from scipy import signal
+        nyq = 0.5 * self.fs
+        self.b_notch, self.a_notch = signal.iirnotch(50.0, 30.0, self.fs)
+        self.b_bp, self.a_bp = signal.butter(4, [1.0 / nyq, 35.0 / nyq], btype='band')
+
         # Data Buffer (2 seconds window)
         self.buffer_samples = int(self.fs * 2.0)
         self.data_buffer = np.zeros((self.buffer_samples, self.num_channels))
@@ -260,52 +286,89 @@ class HeadmapQualityVisualizerWindow(QtWidgets.QMainWindow):
         else:
             self.data_buffer = np.vstack((self.data_buffer[num_new:], chunk))
 
-        # Comprehensive Multi-Feature Quality Classification per channel:
-        # 1. Std Dev (AC variance)
-        # 2. Peak-to-Peak Amplitude Range (max - min)
-        # 3. Mean DC Offset (abs mean)
-        # 4. Zero-derivative count (consecutive duplicate values)
-        stds = np.std(self.data_buffer, axis=0)
-        ranges = np.ptp(self.data_buffer, axis=0)
-        means = np.abs(np.mean(self.data_buffer, axis=0))
+        # Check nominal units: if values are < 0.05, convert V to uV
+        raw_data = self.data_buffer.copy()
+        if np.median(np.abs(raw_data)) < 0.01:
+            raw_data *= 1e6
+
+        # Apply 50 Hz Notch and 1-35 Hz Bandpass filtering across time
+        from scipy import signal
+        detrended = raw_data - np.mean(raw_data, axis=0)
+        try:
+            filt_data = signal.filtfilt(self.b_notch, self.a_notch, detrended, axis=0)
+            filt_data = signal.filtfilt(self.b_bp, self.a_bp, filt_data, axis=0)
+        except Exception:
+            filt_data = detrended
+
+        stds = np.std(filt_data, axis=0)
+        ranges = np.ptp(filt_data, axis=0)
+        raw_maxs = np.max(np.abs(raw_data), axis=0)
 
         channel_stds = {}
         channel_maxs = {}
+        status_colors = {}
         good_count = 0
         flat_count = 0
+        noisy_pins = []
+
+        n_scalp = min(32, len(self.channel_names))
 
         for i, name in enumerate(self.channel_names):
-            std_val = stds[i]
-            ptp_val = ranges[i]
-            mean_val = means[i]
+            std_val = stds[i] if i < len(stds) else 0.0
+            ptp_val = ranges[i] if i < len(ranges) else 0.0
+            raw_max_val = raw_maxs[i] if i < len(raw_maxs) else 0.0
             
             channel_stds[name] = std_val
             channel_maxs[name] = ptp_val
 
-            # Table row display (std and range)
+            # Table row display (std and range in uV)
             self.table.item(i, 1).setText(f"std:{std_val:.1f} | p-p:{ptp_val:.1f}")
 
             # --- Classification Rules ---
-            # 1. Flatline / Disconnected: near-zero AC noise OR peak-to-peak < 0.5 uV
-            if std_val < 0.5 or ptp_val < 0.5:
-                status_item = QtWidgets.QTableWidgetItem("FLATLINE")
-                status_item.setForeground(QtGui.QColor("#E74C3C")) # RED
-                flat_count += 1
-            # 2. Railed / Saturated: huge DC offset or pegged at max ADC voltage (>300 uV)
-            elif mean_val > 300.0 or ptp_val > 500.0:
-                status_item = QtWidgets.QTableWidgetItem("RAILED/SATURATED")
+            if name.upper() == 'BATTERY' or i >= n_scalp:
+                status_item = QtWidgets.QTableWidgetItem("AUX / BATTERY")
+                status_item.setForeground(QtGui.QColor("#A0A5B5"))
+                status_colors[name] = QtGui.QColor("#A0A5B5")
+            # 1. Railed / Saturated: pegged at hardware ADC rail (> 100 mV)
+            elif raw_max_val > 100000.0:
+                status_item = QtWidgets.QTableWidgetItem("RAILED (Pegged)")
                 status_item.setForeground(QtGui.QColor("#E67E22")) # ORANGE
-            # 3. High Noise / Artifact: excessive AC variance (>80 uV)
-            elif std_val > 80.0:
-                status_item = QtWidgets.QTableWidgetItem("HIGH NOISE")
+                status_colors[name] = QtGui.QColor("#E67E22")
+                noisy_pins.append(name)
+            # 2. Flatline / Disconnected: near-zero in-band AC noise (< 0.5 uV)
+            elif std_val < 0.5 or ptp_val < 1.0:
+                status_item = QtWidgets.QTableWidgetItem("FLATLINE (Open)")
+                status_item.setForeground(QtGui.QColor("#E74C3C")) # RED
+                status_colors[name] = QtGui.QColor("#E74C3C")
+                flat_count += 1
+            # 3. High Noise / Poor Contact: excessive AC variance (> 80 uV std or > 300 uV ptp)
+            elif std_val > 80.0 or ptp_val > 300.0:
+                status_item = QtWidgets.QTableWidgetItem("NOISY (Retouch)")
                 status_item.setForeground(QtGui.QColor("#F1C40F")) # YELLOW
-            # 4. Good Signal: healthy AC variance (0.5uV - 80uV) with normal baseline
+                status_colors[name] = QtGui.QColor("#F1C40F")
+                noisy_pins.append(name)
+            # 4. Good Signal: healthy AC variance (0.5uV - 80uV)
             else:
                 status_item = QtWidgets.QTableWidgetItem("GOOD")
                 status_item.setForeground(QtGui.QColor("#2ECC71")) # GREEN
+                status_colors[name] = QtGui.QColor("#2ECC71")
                 good_count += 1
 
             self.table.setItem(i, 2, status_item)
+
+        # Update Headmap Canvas Dots with explicit status colors
+        self.headmap_canvas.update_channel_status(channel_stds, channel_maxs, status_colors=status_colors)
+
+        # Update Summary Banner
+        if noisy_pins:
+            self.lbl_summary.setText(f"Scalp: {good_count}/{n_scalp} Clean | Retouch Pins: {', '.join(noisy_pins)}")
+            self.lbl_summary.setStyleSheet("font-size: 14px; font-weight: bold; color: #F1C40F;")
+        elif flat_count > 0:
+            self.lbl_summary.setText(f"Scalp: {good_count}/{n_scalp} Clean | {flat_count} Pins Flatline (Check contact)")
+            self.lbl_summary.setStyleSheet("font-size: 14px; font-weight: bold; color: #E74C3C;")
+        else:
+            self.lbl_summary.setText(f"Scalp: {good_count}/{n_scalp} Clean | All Electrodes Optimal (Green)")
+            self.lbl_summary.setStyleSheet("font-size: 14px; font-weight: bold; color: #2ECC71;")
 
         # Update Headmap Canvas Dots
         self.headmap_canvas.update_channel_status(channel_stds, channel_maxs)

@@ -124,11 +124,16 @@ class MiniEEGVisualizerWidget(QWidget):
         self.bar_delta.setStyleSheet("QProgressBar { border: none; background: #191E2A; border-radius: 4px; } QProgressBar::chunk { background: #FFEAA7; }")
         right_panel.addWidget(self.bar_delta)
         
-        # Status Label
+        # Status Label & Specific Sensor Retouch Hints
         self.lbl_signal_quality = QLabel("Initialising Signal Engine...")
         self.lbl_signal_quality.setFont(QFont("Arial", 9, QFont.Bold))
         self.lbl_signal_quality.setStyleSheet("color: #A0A5B5; margin-top: 5px;")
         right_panel.addWidget(self.lbl_signal_quality)
+
+        self.lbl_retouch_hints = QLabel("")
+        self.lbl_retouch_hints.setFont(QFont("Arial", 8))
+        self.lbl_retouch_hints.setWordWrap(True)
+        right_panel.addWidget(self.lbl_retouch_hints)
         
         right_panel.addStretch()
         layout.addLayout(right_panel, stretch=1)
@@ -280,17 +285,40 @@ class MiniEEGVisualizerWidget(QWidget):
                 if n_flat > 0:
                     warn.append(f"{n_flat} flat")
 
+                GPYPE_32 = [
+                    "Fp1", "Fp2", "AF3", "AF4", "F7", "F3", "Fz", "F4", "F8",
+                    "FC5", "FC1", "FC2", "FC6", "T7", "C3", "Cz", "C4", "T8",
+                    "CP5", "CP1", "CP2", "CP6", "P7", "P3", "Pz", "P4", "P8",
+                    "PO7", "PO3", "PO4", "PO8", "Oz",
+                ]
+                noisy_names = [GPYPE_32[i] for i in np.where(is_noisy & ~is_railed)[0] if i < len(GPYPE_32)]
+                flat_names = [GPYPE_32[i] for i in np.where(is_flat)[0] if i < len(GPYPE_32)]
+                railed_names = [GPYPE_32[i] for i in np.where(is_railed)[0] if i < len(GPYPE_32)]
+
                 if warn:
                     self.lbl_signal_quality.setText(f"LIVE ({n_clean}/{n_eeg} OK): {', '.join(warn)} | RMS: {rms:.1f}µV")
                     self.lbl_signal_quality.setStyleSheet("color: #FFB74D; font-weight: bold;")
+                    hints = []
+                    if noisy_names:
+                        hints.append(f"Retouch: {', '.join(noisy_names)}")
+                    if flat_names:
+                        hints.append(f"Flat: {', '.join(flat_names)}")
+                    if railed_names:
+                        hints.append(f"Railed: {', '.join(railed_names)}")
+                    self.lbl_retouch_hints.setText(" | ".join(hints))
+                    self.lbl_retouch_hints.setStyleSheet("color: #FFB74D; font-size: 8pt;")
                 else:
                     self.lbl_signal_quality.setText(f"LIVE LSL ({n_clean}/{n_eeg} Clean) | RMS: {rms:.1f}µV")
                     self.lbl_signal_quality.setStyleSheet("color: #00E676; font-weight: bold;")
+                    self.lbl_retouch_hints.setText("All electrodes well-seated (Optimal)")
+                    self.lbl_retouch_hints.setStyleSheet("color: #00E676; font-size: 8pt;")
             else:
                 sim_stds = np.std(filt_data, axis=0)
                 rms = float(np.median(sim_stds))
                 self.lbl_signal_quality.setText(f"SIMULATION PREVIEW | RMS: {rms:.1f}µV")
                 self.lbl_signal_quality.setStyleSheet("color: #FFEAA7; font-style: italic;")
+                self.lbl_retouch_hints.setText("Waiting for g.Nautilus EEG stream...")
+                self.lbl_retouch_hints.setStyleSheet("color: #A0A5B5; font-size: 8pt;")
 
 
 class BCISuiteControlCenter(QMainWindow):
@@ -307,6 +335,7 @@ class BCISuiteControlCenter(QMainWindow):
         self.calibrator_window = None
         self.video_task_window = None
         self.spatial_3d_task_window = None
+        self.headmap_window = None
 
         self.init_ui()
 
@@ -399,6 +428,15 @@ class BCISuiteControlCenter(QMainWindow):
         self.mini_visualizer = MiniEEGVisualizerWidget()
         self.mini_visualizer.setFixedHeight(190)
         mini_vis_layout.addWidget(self.mini_visualizer)
+
+        vis_toolbar = QHBoxLayout()
+        vis_toolbar.addStretch()
+        self.btn_open_headmap = QPushButton("🗺️ Open 2D Scalp Impedance Headmap")
+        self.btn_open_headmap.setFont(QFont("Arial", 9, QFont.Bold))
+        self.btn_open_headmap.setStyleSheet("background-color: #2D3748; color: #63B3ED; border: 1px solid #4A5568; padding: 4px 12px; border-radius: 4px;")
+        self.btn_open_headmap.clicked.connect(self.launch_headmap_gui)
+        vis_toolbar.addWidget(self.btn_open_headmap)
+        mini_vis_layout.addLayout(vis_toolbar)
         
         main_layout.addWidget(mini_vis_box)
 
@@ -727,6 +765,19 @@ class BCISuiteControlCenter(QMainWindow):
             self.spatial_3d_task_window.show()
         else:
             self.spatial_3d_task_window.activateWindow()
+
+    def launch_headmap_gui(self):
+        try:
+            if self.headmap_window is None or not self.headmap_window.isVisible():
+                self.log("Opening 2D Scalp Impedance Headmap...")
+                from visualizers.eeg_headmap_quality_visualizer import HeadmapQualityVisualizerWindow
+                self.headmap_window = HeadmapQualityVisualizerWindow()
+                self.headmap_window.show()
+            else:
+                self.headmap_window.activateWindow()
+        except Exception as e:
+            self.log(f"Error launching headmap: {e}")
+            QMessageBox.critical(self, "Headmap Error", f"Failed to launch 2D Headmap:\n{e}")
 
     def update_status(self):
         try:
