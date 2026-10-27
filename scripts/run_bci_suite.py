@@ -49,9 +49,12 @@ class MiniEEGVisualizerWidget(QWidget):
         self.eeg_data = np.zeros((self.buf_samples, self.num_channels))
         self.sim_sample_count = 0
         
-        # Filter design (2-45 Hz bandpass)
+        # Filter design:
+        # 1. 50 Hz Notch filter (removes powerline interference)
         nyq = 0.5 * self.fs
-        self.b_bp, self.a_bp = signal.butter(2, [2.0 / nyq, 45.0 / nyq], btype='band')
+        self.b_notch, self.a_notch = signal.iirnotch(50.0, 30.0, self.fs)
+        # 2. 1-35 Hz Bandpass filter (removes DC baseline drift and high-frequency EMG)
+        self.b_bp, self.a_bp = signal.butter(4, [1.0 / nyq, 35.0 / nyq], btype='band')
         
         self.init_ui()
         
@@ -201,15 +204,20 @@ class MiniEEGVisualizerWidget(QWidget):
             self.eeg_data[-n_new:, :] = sim_chunk
 
         # 3. Filter and Plot Waveforms
-        filt_data = self.eeg_data - np.mean(self.eeg_data, axis=0)
+        # Separate scalp EEG from auxiliary/battery channels (typically up to 32 EEG channels)
+        n_eeg = min(32, self.num_channels)
+        raw_eeg = self.eeg_data[:, :n_eeg]
+        detrended = raw_eeg - np.mean(raw_eeg, axis=0)
+
         try:
+            filt_data = signal.filtfilt(self.b_notch, self.a_notch, detrended, axis=0)
             filt_data = signal.filtfilt(self.b_bp, self.a_bp, filt_data, axis=0)
         except Exception:
-            pass
+            filt_data = detrended
 
-        # Dynamic gain scaling so small microvolt waves are always clearly visible
-        current_std = np.std(filt_data)
-        spacing = max(20.0, current_std * 3.5)
+        # Dynamic gain scaling so small microvolt waves are clearly visible
+        current_std = np.median(np.std(filt_data, axis=0)) if filt_data.shape[1] > 0 else 20.0
+        spacing = max(25.0, current_std * 3.5)
         offsets = [0, spacing, spacing * 2, spacing * 3]
 
         for i, ch_idx in enumerate(self.ch_indices):
@@ -226,7 +234,7 @@ class MiniEEGVisualizerWidget(QWidget):
 
             alpha_idx = (freqs >= 8) & (freqs <= 12)
             beta_idx = (freqs >= 12) & (freqs <= 30)
-            delta_idx = (freqs >= 0.5) & (freqs <= 4)
+            delta_idx = (freqs >= 1) & (freqs <= 4)
 
             p_alpha = np.mean(fft_vals[alpha_idx, :]) if np.any(alpha_idx) else 0.0
             p_beta = np.mean(fft_vals[beta_idx, :]) if np.any(beta_idx) else 0.0
@@ -237,27 +245,48 @@ class MiniEEGVisualizerWidget(QWidget):
             self.bar_beta.setValue(int(min(100, (p_beta / total_p) * 100)))
             self.bar_delta.setValue(int(min(100, (p_delta / total_p) * 100)))
 
-            rms = np.sqrt(np.mean(filt_data**2))
             if pulled:
-                # Check for railed (>4000 uV ptp) or flatline (<0.2 uV std) channels
-                ch_ptps = np.ptp(self.eeg_data, axis=0)
-                ch_stds = np.std(self.eeg_data, axis=0)
-                n_railed = int(np.sum(ch_ptps > 4000.0))
-                n_flat = int(np.sum(ch_stds < 0.2))
+                # Hardware ADC Rail Saturated (>100 mV = 100,000 uV ADC limits)
+                raw_max = np.max(np.abs(raw_eeg), axis=0)
+                is_railed = raw_max > 100000.0
 
-                if n_railed > 0 or n_flat > 0:
-                    warn = []
-                    if n_railed > 0:
-                        warn.append(f"{n_railed} railed")
-                    if n_flat > 0:
-                        warn.append(f"{n_flat} flat")
-                    self.lbl_signal_quality.setText(f"⚠ LIVE: {', '.join(warn)} | RMS: {rms:.1f}µV")
-                    self.lbl_signal_quality.setStyleSheet("color: #FF7675; font-weight: bold;")
+                # Flatline / Disconnected in band (< 0.5 uV std or < 1.0 uV ptp in 1-35 Hz)
+                filt_stds = np.std(filt_data, axis=0)
+                filt_ptps = np.ptp(filt_data, axis=0)
+                is_flat = (filt_stds < 0.5) | (filt_ptps < 1.0)
+
+                # High noise / loose contact (> 80 uV std or > 300 uV ptp in 1-35 Hz)
+                is_noisy = (filt_stds > 80.0) | (filt_ptps > 300.0)
+
+                # Clean channels
+                is_clean = ~(is_railed | is_flat | is_noisy)
+                n_clean = int(np.sum(is_clean))
+                n_railed = int(np.sum(is_railed))
+                n_flat = int(np.sum(is_flat))
+                n_noisy = int(np.sum(is_noisy & ~is_railed))
+
+                # Robust median RMS across clean channels (or all EEG channels if none clean)
+                clean_stds = filt_stds[is_clean] if n_clean > 0 else filt_stds
+                rms = float(np.median(clean_stds))
+
+                warn = []
+                if n_railed > 0:
+                    warn.append(f"{n_railed} railed")
+                if n_noisy > 0:
+                    warn.append(f"{n_noisy} noisy")
+                if n_flat > 0:
+                    warn.append(f"{n_flat} flat")
+
+                if warn:
+                    self.lbl_signal_quality.setText(f"LIVE ({n_clean}/{n_eeg} OK): {', '.join(warn)} | RMS: {rms:.1f}µV")
+                    self.lbl_signal_quality.setStyleSheet("color: #FFB74D; font-weight: bold;")
                 else:
-                    self.lbl_signal_quality.setText(f"LIVE LSL ({self.num_channels}ch OK) | RMS: {rms:.1f}µV")
+                    self.lbl_signal_quality.setText(f"LIVE LSL ({n_clean}/{n_eeg} Clean) | RMS: {rms:.1f}µV")
                     self.lbl_signal_quality.setStyleSheet("color: #00E676; font-weight: bold;")
             else:
-                self.lbl_signal_quality.setText(f"SIMULATION PREVIEW (No LSL stream connected)")
+                sim_stds = np.std(filt_data, axis=0)
+                rms = float(np.median(sim_stds))
+                self.lbl_signal_quality.setText(f"SIMULATION PREVIEW | RMS: {rms:.1f}µV")
                 self.lbl_signal_quality.setStyleSheet("color: #FFEAA7; font-style: italic;")
 
 
