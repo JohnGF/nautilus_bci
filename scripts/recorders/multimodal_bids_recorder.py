@@ -189,6 +189,7 @@ class MultimodalBIDSRecorder:
             # Parse XML channel labels
             ch_names = []
             ch_types = []
+            ch_units = []
             ch_child = info_xml.desc().child("channels").child("channel")
             for i in range(item['n_ch']):
                 if not ch_child.empty():
@@ -203,6 +204,22 @@ class MultimodalBIDSRecorder:
                     ch_names.append(f"EEG{i+1:03d}")
                     ch_types.append('eeg')
                     ch_units.append('microvolts')
+
+            # If driver gave generic/numeric channel labels, map to standard GPYPE_32 10-20 names
+            GPYPE_32 = [
+                "Fp1", "Fp2", "AF3", "AF4", "F7", "F3", "Fz", "F4", "F8",
+                "FC5", "FC1", "FC2", "FC6", "T7", "C3", "Cz", "C4", "T8",
+                "CP5", "CP1", "CP2", "CP6", "P7", "P3", "Pz", "P4", "P8",
+                "PO7", "PO3", "PO4", "PO8", "Oz",
+            ]
+            has_1020 = any(n.upper() in ["C3", "C4", "P3", "P4", "OZ"] for n in ch_names)
+            if not has_1020 and len(ch_names) >= 32:
+                for idx in range(32):
+                    ch_names[idx] = GPYPE_32[idx]
+
+            for idx, c_name in enumerate(ch_names):
+                if c_name.lower() in ['battery', 'counter', 'sync', 'status']:
+                    ch_types[idx] = 'misc'
 
             # Convert to Volts for MNE
             has_uv = any('microvolt' in u or 'uv' in u for u in ch_units if u)
@@ -237,6 +254,11 @@ class MultimodalBIDSRecorder:
                 print(f"[!] Quality Audit: flagged {len(bad_channels)} channels as BAD: {bad_channels}")
 
             raw = mne.io.RawArray(eeg_raw_data, mne_info)
+            try:
+                montage = mne.channels.make_standard_montage('standard_1020')
+                raw.set_montage(montage, on_missing='ignore')
+            except Exception:
+                pass
 
             # Add Marker annotations
             if self.marker_events and len(self.timestamp_buffers[eeg_stream_name]) > 0:
