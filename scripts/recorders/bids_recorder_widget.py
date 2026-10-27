@@ -178,13 +178,29 @@ class BIDSRecorderControlWidget(QtWidgets.QGroupBox):
     def update_live_stats(self):
         if self.recorder and self.recorder.is_recording:
             n_eeg = 0
+            warn_str = ""
             # Search dynamically through inlets to find EEG stream and its buffers
             for sname, info in self.recorder.inlets.items():
                 if info['type'] == 'EEG':
-                    n_eeg = len(self.recorder.data_buffers.get(sname, []))
+                    buf = self.recorder.data_buffers.get(sname, [])
+                    n_eeg = len(buf)
+                    if n_eeg >= 250:
+                        import numpy as np
+                        recent = np.array(buf[-250:], dtype=np.float64)
+                        ptps = np.ptp(recent, axis=0)
+                        stds = np.std(recent, axis=0)
+                        n_railed = int(np.sum(ptps > 4000.0))
+                        n_flat = int(np.sum(stds < 0.2))
+                        if n_railed > 0 or n_flat > 0:
+                            warn_str = f" ⚠ {n_railed} railed, {n_flat} flat"
                     break
             n_mrk = len(self.recorder.marker_events)
-            self.lbl_status.setText(f"STATUS: 🔴 RECORDING LIVE | {n_eeg} EEG samples | {n_mrk} Events")
+            if warn_str:
+                self.lbl_status.setText(f"STATUS: 🔴 RECORDING | {n_eeg} EEG | {n_mrk} Evt |{warn_str}")
+                self.lbl_status.setStyleSheet("color: #FF7675; font-weight: bold;")
+            else:
+                self.lbl_status.setText(f"STATUS: 🔴 RECORDING LIVE | {n_eeg} EEG samples | {n_mrk} Events")
+                self.lbl_status.setStyleSheet("color: #2ECC71; font-weight: bold;")
 
     def get_subject_id(self):
         return self.txt_sub.text().strip()
