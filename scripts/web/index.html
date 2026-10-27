@@ -285,32 +285,14 @@
                         <button id="pillBtn-spatial-phase1" class="sub-pill-btn" onclick="setSpatialSubMode('phase1')">🚀 Phase 1: Guided Cues</button>
                         <button id="pillBtn-spatial-freeflight" class="sub-pill-btn" onclick="setSpatialSubMode('freeflight')">🌌 Free Flight Simulator</button>
                     </div>
-                    <div id="spatialTaskBadge" class="status-pill-sub">SMR Closed-Loop Active</div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div id="spatialTaskBadge" class="status-pill-sub">Nautilus 6-DoF WebGL Engine</div>
+                        <button class="sub-pill-btn" onclick="toggleSpatialFullscreen()" title="Open Fullscreen 3D Simulator">⛶ Fullscreen</button>
+                    </div>
                 </div>
 
-                <div id="threeViewportWrap" class="threejs-viewport-wrap">
-                    <canvas id="taskGlCanvas"></canvas>
-
-                    <!-- Real-Time HUD Overlay -->
-                    <div class="task-hud-overlay">
-                        <div class="hud-panel">
-                            <div style="font-size: 13px; font-weight: bold; color: var(--accent-blue);">⚡ 3D NEUROFEEDBACK</div>
-                            <div id="hudDriveText" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Drive: 50%</div>
-                            <div class="bar-track" style="width: 140px; height: 6px; margin-top: 4px;">
-                                <div id="hudDriveFill" class="bar-fill fill-beta" style="width: 50%;"></div>
-                            </div>
-                        </div>
-                        <div class="hud-panel">
-                            <div style="font-size: 11px; color: var(--text-secondary);">STEERING (C4 - C3)</div>
-                            <div id="hudSteeringText" style="font-size: 13px; font-weight: bold; color: var(--accent-green);">CENTERED</div>
-                        </div>
-                        <!-- Phase 1 Guided Cue Banner -->
-                        <div id="phase1CueBanner" class="phase1-cue-banner" style="display: none;">
-                            <div id="phase1TargetText" class="phase1-target-prompt">SURGE FORWARD</div>
-                            <div id="phase1CueSub" class="phase1-target-sub">Both Hands Motor Imagery</div>
-                            <div class="cue-countdown-bar"><div id="phase1CueProgress" class="cue-countdown-fill"></div></div>
-                        </div>
-                    </div>
+                <div id="spatialIframeWrap" class="spatial-iframe-wrap">
+                    <iframe id="spatial3dFrame" src="spatial_3d.html" class="spatial-iframe" allow="autoplay"></iframe>
                 </div>
             </div>
         </section>

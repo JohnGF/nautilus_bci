@@ -738,6 +738,24 @@ body {
 .fill-delta { background: linear-gradient(90deg, #D29922, #B08800); }
 
 /* ── 4. 3D SPATIAL TASK TAB ── */
+.spatial-iframe-wrap {
+    position: relative;
+    width: 100%;
+    height: 640px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #06090e;
+    border: 1px solid var(--border-color);
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
+}
+
+.spatial-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+}
+
 .threejs-viewport-wrap {
     width: 100%;
     height: 520px;

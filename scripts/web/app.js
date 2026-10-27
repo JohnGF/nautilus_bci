@@ -456,6 +456,17 @@ function runSimulatedTelemetry() {
         erdVal.textContent = state.lateralization.toFixed(2);
     }
 
+    // Bridge telemetry to 3D 6-DoF WebGL simulator iframe
+    const simFrame = document.getElementById('spatial3dFrame');
+    if (simFrame && simFrame.contentWindow) {
+        simFrame.contentWindow.postMessage({
+            type: 'BCI_TELEMETRY',
+            lateralization: state.lateralization,
+            drive: state.mentalDrive,
+            connected: false
+        }, '*');
+    }
+
     // Update Channel Quality Table and Headmap
     updateChannelTable();
     updateHeadmapVisuals();
@@ -559,6 +570,17 @@ function applyLiveTelemetry(data) {
         }
         if (erdVal) {
             erdVal.textContent = state.lateralization.toFixed(2);
+        }
+
+        // Bridge live telemetry to 3D 6-DoF WebGL simulator iframe
+        const simFrame = document.getElementById('spatial3dFrame');
+        if (simFrame && simFrame.contentWindow) {
+            simFrame.contentWindow.postMessage({
+                type: 'BCI_TELEMETRY',
+                lateralization: state.lateralization,
+                drive: state.mentalDrive,
+                connected: true
+            }, '*');
         }
     }
 
@@ -848,56 +870,27 @@ function setSpatialSubMode(mode) {
     });
 
     const badge = document.getElementById('spatialTaskBadge');
-    const cueBanner = document.getElementById('phase1CueBanner');
-
     if (mode === 'phase1') {
         if (badge) badge.textContent = "Phase 1: Guided Calibration Cues";
-        if (cueBanner) cueBanner.style.display = 'block';
-        startPhase1GuidedSequencer();
     } else if (mode === 'freeflight') {
         if (badge) badge.textContent = "Free Flight Simulation Mode";
-        if (cueBanner) cueBanner.style.display = 'none';
-        stopPhase1GuidedSequencer();
     } else {
         if (badge) badge.textContent = "SMR Closed-Loop Active";
-        if (cueBanner) cueBanner.style.display = 'none';
-        stopPhase1GuidedSequencer();
+    }
+
+    const simFrame = document.getElementById('spatial3dFrame');
+    if (simFrame && simFrame.contentWindow) {
+        simFrame.contentWindow.postMessage({ type: 'SET_MODE', mode }, '*');
     }
 }
 
-let phase1Timer = null;
-function startPhase1GuidedSequencer() {
-    stopPhase1GuidedSequencer();
-    const cues = [
-        { title: "SURGE FORWARD", sub: "Imagine Both Hands Opening / Closing", progressColor: "#38EF7D" },
-        { title: "SWAY LEFT", sub: "Imagine Left Hand Clenching", progressColor: "#58A6FF" },
-        { title: "SWAY RIGHT", sub: "Imagine Right Hand Clenching", progressColor: "#BC85FF" },
-        { title: "HEAVE UP", sub: "Imagine Both Feet Tapping", progressColor: "#D29922" }
-    ];
-    let idx = 0;
-    const targetText = document.getElementById('phase1TargetText');
-    const subText = document.getElementById('phase1CueSub');
-    const fill = document.getElementById('phase1CueProgress');
-
-    function step() {
-        const cue = cues[idx % cues.length];
-        if (targetText) targetText.textContent = cue.title;
-        if (subText) subText.textContent = cue.sub;
-        if (fill) {
-            fill.style.backgroundColor = cue.progressColor;
-            fill.style.width = '0%';
-            setTimeout(() => { fill.style.transition = 'width 3.8s linear'; fill.style.width = '100%'; }, 50);
-        }
-        idx++;
-    }
-    step();
-    phase1Timer = setInterval(step, 4000);
-}
-
-function stopPhase1GuidedSequencer() {
-    if (phase1Timer) {
-        clearInterval(phase1Timer);
-        phase1Timer = null;
+function toggleSpatialFullscreen() {
+    const frame = document.getElementById('spatial3dFrame');
+    if (!frame) return;
+    if (frame.requestFullscreen) {
+        frame.requestFullscreen();
+    } else if (frame.webkitRequestFullscreen) {
+        frame.webkitRequestFullscreen();
     }
 }
 
