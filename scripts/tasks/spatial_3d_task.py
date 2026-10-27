@@ -1633,9 +1633,14 @@ class Spatial3DTaskApp(BaseTaskApp):
             self.idx_cz = find_ch("CZ", 5)
             self.idx_c4 = find_ch("C4", 6)
 
-            # Design 8-30 Hz Mu/Beta bandpass
+            # Design 50 Hz Notch and 8-30 Hz Mu/Beta Bandpass
             nyq = 0.5 * self.eeg_fs
-            self.b_mb, self.a_mb = signal.butter(2, [8.0 / nyq, 30.0 / nyq], btype='band')
+            self.b_notch, self.a_notch = signal.iirnotch(50.0, 30.0, self.eeg_fs)
+            self.b_mb, self.a_mb = signal.butter(4, [8.0 / nyq, 30.0 / nyq], btype='band')
+
+            # 1.5-second continuous rolling ring buffer
+            self.ring_buf_samples = int(self.eeg_fs * 1.5)
+            self.eeg_ring_buf = np.zeros((self.ring_buf_samples, len(ch_names)))
 
             self.baseline_power = None
             self.baseline_buffer = []
@@ -1672,24 +1677,46 @@ class Spatial3DTaskApp(BaseTaskApp):
 
         try:
             chunk, _ = self.eeg_inlet.pull_chunk(max_samples=250)
-            if not chunk or len(chunk) < 16:
+            if not chunk or len(chunk) == 0:
                 return
 
-            data = np.array(chunk, dtype=np.float64)
-            if np.median(np.abs(data)) < 0.01:
-                data *= 1e6
+            new_data = np.array(chunk, dtype=np.float64)
+            if np.median(np.abs(new_data)) < 0.01:
+                new_data *= 1e6
 
-            c3_data = data[:, self.idx_c3]
-            cz_data = data[:, self.idx_cz]
-            c4_data = data[:, self.idx_c4]
+            n_new = len(new_data)
+            if n_new >= self.ring_buf_samples:
+                self.eeg_ring_buf = new_data[-self.ring_buf_samples:, :]
+            else:
+                self.eeg_ring_buf = np.roll(self.eeg_ring_buf, -n_new, axis=0)
+                self.eeg_ring_buf[-n_new:, :] = new_data
 
-            c3_filt = signal.lfilter(self.b_mb, self.a_mb, c3_data)
-            cz_filt = signal.lfilter(self.b_mb, self.a_mb, cz_data)
-            c4_filt = signal.lfilter(self.b_mb, self.a_mb, c4_data)
+            # Apply baseline subtraction, 50 Hz notch, and 8-30 Hz Mu/Beta bandpass
+            detrended = self.eeg_ring_buf - np.mean(self.eeg_ring_buf, axis=0)
+            try:
+                filt_all = signal.filtfilt(self.b_notch, self.a_notch, detrended, axis=0)
+                filt_all = signal.filtfilt(self.b_mb, self.a_mb, filt_all, axis=0)
+            except Exception:
+                filt_all = detrended
 
-            p_c3 = float(np.mean(c3_filt[-64:]**2))
-            p_cz = float(np.mean(cz_filt[-64:]**2))
-            p_c4 = float(np.mean(c4_filt[-64:]**2))
+            # Compute Common Average Reference using valid scalp channels (excluding open/railed channels)
+            n_scalp = min(32, filt_all.shape[1])
+            ch_stds = np.std(filt_all[:, :n_scalp], axis=0)
+            clean_mask = (ch_stds > 0.5) & (ch_stds < 80.0)
+            if np.sum(clean_mask) >= 3:
+                car = np.mean(filt_all[:, :n_scalp][:, clean_mask], axis=1, keepdims=True)
+            else:
+                car = 0.0
+
+            c3_clean = filt_all[:, self.idx_c3] - (car[:, 0] if np.ndim(car) > 1 else car)
+            cz_clean = filt_all[:, self.idx_cz] - (car[:, 0] if np.ndim(car) > 1 else car)
+            c4_clean = filt_all[:, self.idx_c4] - (car[:, 0] if np.ndim(car) > 1 else car)
+
+            # Evaluate power over the recent 500ms (125 samples at 250 Hz)
+            eval_win = min(125, len(c3_clean))
+            p_c3 = float(np.mean(c3_clean[-eval_win:]**2))
+            p_cz = float(np.mean(cz_clean[-eval_win:]**2))
+            p_c4 = float(np.mean(c4_clean[-eval_win:]**2))
             p_mean = (p_c3 + p_cz + p_c4) / 3.0
 
             # Calibrate baseline power during initial ~2 seconds
