@@ -22,6 +22,8 @@ import random
 import time
 import wave
 import numpy as np
+from scipy import signal
+from pylsl import StreamInlet, resolve_byprop, resolve_streams
 
 _parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _parent_dir not in sys.path:
@@ -1106,6 +1108,17 @@ class Spatial3DTaskApp(BaseTaskApp):
         self.phase_start_time = 0.0
         self.current_phase_duration = 1.0
 
+        # Live BCI Closed-Loop State (Epoch-style neurofeedback)
+        self.eeg_inlet = None
+        self.eeg_fs = 250.0
+        self.idx_c3 = 4
+        self.idx_cz = 5
+        self.idx_c4 = 6
+        self.baseline_power = None
+        self.baseline_buffer = []
+        self.live_bci_timer = QTimer(self)
+        self.live_bci_timer.timeout.connect(self.update_live_bci_feedback)
+
         self.init_ui()
 
     def play_cue_sound(self, sound_key):
@@ -1291,6 +1304,12 @@ class Spatial3DTaskApp(BaseTaskApp):
         self.btn_start.clicked.connect(self.start_experiment)
         btn_layout.addWidget(self.btn_start)
 
+        self.btn_epoch_attempt = QPushButton("⚡ Attempt to Move (Live BCI Control)")
+        self.btn_epoch_attempt.setFont(QFont("Arial", 11, QFont.Bold))
+        self.btn_epoch_attempt.setStyleSheet("background-color: #8957E5; color: white; padding: 8px 16px;")
+        self.btn_epoch_attempt.clicked.connect(self.start_live_bci_mode)
+        btn_layout.addWidget(self.btn_epoch_attempt)
+
         layout.addLayout(btn_layout)
         return widget
 
@@ -1341,6 +1360,38 @@ class Spatial3DTaskApp(BaseTaskApp):
             QProgressBar::chunk { background-color: #2EA043; border-radius: 4px; }
         """)
         layout.addWidget(self.progress_bar)
+
+        # Live BCI Telemetry HUD Bar (for Attempt to Move mode)
+        self.bci_hud_group = QGroupBox("⚡ Live BCI Neurofeedback Telemetry")
+        self.bci_hud_group.setStyleSheet("QGroupBox { font-size: 11px; font-weight: bold; color: #58A6FF; border: 1px solid #30363D; border-radius: 6px; padding: 6px; }")
+        hud_layout = QHBoxLayout(self.bci_hud_group)
+        hud_layout.setContentsMargins(10, 8, 10, 8)
+
+        self.lbl_bci_power = QLabel("Mental Drive: 0%")
+        self.lbl_bci_power.setFont(QFont("Arial", 10, QFont.Bold))
+        self.lbl_bci_power.setStyleSheet("color: #4DEEEA;")
+        hud_layout.addWidget(self.lbl_bci_power)
+
+        self.bar_bci_power = QProgressBar()
+        self.bar_bci_power.setFixedHeight(12)
+        self.bar_bci_power.setRange(0, 100)
+        self.bar_bci_power.setValue(0)
+        self.bar_bci_power.setTextVisible(False)
+        self.bar_bci_power.setStyleSheet("QProgressBar { border: none; background: #161B22; border-radius: 4px; } QProgressBar::chunk { background: #4DEEEA; border-radius: 4px; }")
+        hud_layout.addWidget(self.bar_bci_power, stretch=2)
+
+        self.lbl_bci_steering = QLabel("Steering: [    •    ]")
+        self.lbl_bci_steering.setFont(QFont("Arial", 10, QFont.Bold))
+        self.lbl_bci_steering.setStyleSheet("color: #FFEAA7;")
+        hud_layout.addWidget(self.lbl_bci_steering)
+
+        self.lbl_bci_state = QLabel("State: Neutral (Hover)")
+        self.lbl_bci_state.setFont(QFont("Arial", 10, QFont.Bold))
+        self.lbl_bci_state.setStyleSheet("color: #3FB950;")
+        hud_layout.addWidget(self.lbl_bci_state)
+
+        layout.addWidget(self.bci_hud_group)
+        self.bci_hud_group.hide()
 
         # Free Flight Instructions (hidden during trials)
         self.lbl_free_flight_help = QLabel(
@@ -1534,10 +1585,175 @@ class Spatial3DTaskApp(BaseTaskApp):
     def stop_experiment(self):
         self.trial_timer.stop()
         self.progress_timer.stop()
+        self.live_bci_timer.stop()
+        if self.eeg_inlet is not None:
+            self.eeg_inlet = None
+        self.bci_hud_group.hide()
         self.canvas_3d.autonomous_control = True
         self.canvas_3d.reset_to_center()
         self.send_marker("Experiment_Aborted")
         self.stacked_widget.setCurrentWidget(self.config_screen)
+
+    def start_live_bci_mode(self):
+        """Enter Epoch-style Attempt to Move (Live Closed-Loop Neurofeedback) mode."""
+        try:
+            streams = resolve_byprop("type", "EEG", timeout=2.0)
+            if not streams:
+                streams = [s for s in resolve_streams(wait_time=1.0) if 'NAUTILUS' in s.name().upper() or s.type().upper() == 'EEG']
+            if not streams:
+                QMessageBox.warning(self, "No LSL EEG Stream", "Could not find a live EEG stream on the network!\nPlease ensure the BCI streamer is active on the BCI computer.")
+                return
+
+            self.eeg_inlet = StreamInlet(streams[0], max_buflen=360)
+            info = self.eeg_inlet.info()
+            self.eeg_fs = info.nominal_srate() if info.nominal_srate() > 0 else 250.0
+
+            # Parse channel labels
+            ch_names = []
+            ch_child = info.desc().child("channels").child("channel")
+            i = 0
+            while not ch_child.empty():
+                lbl = ch_child.child_value("label").upper()
+                ch_names.append(lbl if lbl else f"CH{i+1}")
+                ch_child = ch_child.next_sibling("channel")
+                i += 1
+            if not ch_names:
+                ch_names = [f"CH{i+1}" for i in range(info.channel_count())]
+
+            self.eeg_ch_names = ch_names
+
+            # Find motor cortex channels (C3, Cz, C4)
+            def find_ch(target, fallback_idx):
+                for idx, name in enumerate(ch_names):
+                    if target in name:
+                        return idx
+                return fallback_idx if fallback_idx < len(ch_names) else 0
+
+            self.idx_c3 = find_ch("C3", 4)
+            self.idx_cz = find_ch("CZ", 5)
+            self.idx_c4 = find_ch("C4", 6)
+
+            # Design 8-30 Hz Mu/Beta bandpass
+            nyq = 0.5 * self.eeg_fs
+            self.b_mb, self.a_mb = signal.butter(2, [8.0 / nyq, 30.0 / nyq], btype='band')
+
+            self.baseline_power = None
+            self.baseline_buffer = []
+
+        except Exception as e:
+            QMessageBox.critical(self, "LSL Connection Error", f"Failed to connect to EEG inlet: {e}")
+            return
+
+        self.canvas_3d.object_type = 'cube' if self.model_combo.currentIndex() == 1 else 'nautilus'
+        cam_idx = self.cam_combo.currentIndex()
+        modes = ['fixed', 'elastic', 'chase']
+        self.canvas_3d.camera_mode = modes[cam_idx] if cam_idx < len(modes) else 'fixed'
+        self.canvas_3d.autonomous_control = False
+        self.canvas_3d.show_cue_guide = False
+        self.canvas_3d.reset_to_center()
+
+        self.lbl_instruction.setText("⚡ LIVE BCI CONTROL: IMAGINE TO MOVE")
+        self.lbl_instruction.setStyleSheet("color: #4DEEEA; font-weight: bold;")
+        self.lbl_status.setText("Mode: Epoch-Style Live Neurofeedback")
+        self.lbl_trial_count.setText("Closed-Loop BCI")
+        self.lbl_free_flight_help.hide()
+        self.bci_hud_group.show()
+
+        self.send_marker("Live_BCI_Attempt_Mode_Started")
+        self.stacked_widget.setCurrentWidget(self.task_screen)
+        self.canvas_3d.setFocus()
+
+        # Start 30 FPS Neurofeedback loop
+        self.live_bci_timer.start(33)
+
+    def update_live_bci_feedback(self):
+        if not self.eeg_inlet:
+            return
+
+        try:
+            chunk, _ = self.eeg_inlet.pull_chunk(max_samples=250)
+            if not chunk or len(chunk) < 16:
+                return
+
+            data = np.array(chunk, dtype=np.float64)
+            if np.median(np.abs(data)) < 0.01:
+                data *= 1e6
+
+            c3_data = data[:, self.idx_c3]
+            cz_data = data[:, self.idx_cz]
+            c4_data = data[:, self.idx_c4]
+
+            c3_filt = signal.lfilter(self.b_mb, self.a_mb, c3_data)
+            cz_filt = signal.lfilter(self.b_mb, self.a_mb, cz_data)
+            c4_filt = signal.lfilter(self.b_mb, self.a_mb, c4_data)
+
+            p_c3 = float(np.mean(c3_filt[-64:]**2))
+            p_cz = float(np.mean(cz_filt[-64:]**2))
+            p_c4 = float(np.mean(c4_filt[-64:]**2))
+            p_mean = (p_c3 + p_cz + p_c4) / 3.0
+
+            # Calibrate baseline power during initial ~2 seconds
+            if self.baseline_power is None:
+                self.baseline_buffer.append(p_mean)
+                if len(self.baseline_buffer) >= 60:
+                    self.baseline_power = float(np.median(self.baseline_buffer))
+                self.lbl_bci_state.setText("Calibrating Resting Baseline...")
+                self.lbl_bci_state.setStyleSheet("color: #FFEAA7;")
+                return
+
+            self.baseline_power = 0.995 * self.baseline_power + 0.005 * max(p_mean, self.baseline_power * 0.5)
+
+            # ERD (Desynchronization) activation: ratio < 1.0 means active mental effort
+            ratio = p_mean / (self.baseline_power + 1e-6)
+            drive = float(np.clip((1.0 - ratio) / 0.45, 0.0, 1.0))
+
+            # Lateralization balance: C4 vs C3 ERD
+            lateral_diff = (p_c4 - p_c3) / (p_c3 + p_c4 + 1e-6)
+            lateral = float(np.clip(lateral_diff * 3.0, -1.0, 1.0))
+
+            self.bar_bci_power.setValue(int(drive * 100))
+            self.lbl_bci_power.setText(f"Mental Drive: {int(drive * 100)}%")
+
+            if lateral > 0.25:
+                steer_str = "Steering: [    → Right ]"
+                state_str = "BANK RIGHT"
+                state_col = "#58A6FF"
+                self.send_marker("BCI_Decoded_Right", 0.05)
+            elif lateral < -0.25:
+                steer_str = "Steering: [ Left ←    ]"
+                state_str = "BANK LEFT"
+                state_col = "#58A6FF"
+                self.send_marker("BCI_Decoded_Left", 0.05)
+            elif drive > 0.3:
+                steer_str = "Steering: [    •    ]"
+                state_str = "FORWARD THRUST (PUSH)"
+                state_col = "#3FB950"
+                self.send_marker("BCI_Decoded_Forward", 0.05)
+            else:
+                steer_str = "Steering: [    •    ]"
+                state_str = "NEUTRAL (HOVER)"
+                state_col = "#8B949E"
+
+            self.lbl_bci_steering.setText(steer_str)
+            self.lbl_bci_state.setText(f"State: {state_str}")
+            self.lbl_bci_state.setStyleSheet(f"color: {state_col}; font-weight: bold;")
+
+            # Apply drive to 3D vehicle physics
+            if drive > 0.2:
+                self.canvas_3d.velocity[2] -= drive * 0.14
+                self.canvas_3d.active_intensity = drive
+            else:
+                self.canvas_3d.active_intensity = 0.0
+
+            if abs(lateral) > 0.2:
+                self.canvas_3d.velocity[0] += lateral * 0.08
+                self.canvas_3d.yaw_vel += lateral * 0.7
+                self.canvas_3d.roll = -lateral * 18.0
+
+            self.canvas_3d.update()
+
+        except Exception:
+            pass
 
 
 def main():
