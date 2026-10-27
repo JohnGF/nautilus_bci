@@ -92,6 +92,10 @@ class BIDSRecorderWindow(QMainWindow):
         self.recorder_widget.txt_outdir.clear()
         self.statusBar().showMessage("New session — configure and start recording")
 
+    @property
+    def recorder(self):
+        return getattr(self.recorder_widget, "recorder", None)
+
     def _export_now(self):
         if self.recorder and self.recorder.is_recording:
             self.recorder_widget.toggle_recording()

@@ -30,6 +30,11 @@ DOCS_DIR = os.path.join(REPO_ROOT, "docs")
 GAMES_DIR = os.path.join(REPO_ROOT, "games")
 INTEGRATIONS_DIR = os.path.join(REPO_ROOT, "integrations")
 
+# Data directories (configurable via BCI_DATA_DIR environment variable)
+DEFAULT_DATA_ROOT = os.environ.get("BCI_DATA_DIR", os.path.join(SCRIPTS_DIR, "bids"))
+BIDS_DATA_DIR = DEFAULT_DATA_ROOT
+BIDS_CLEAN_DIR = os.environ.get("BCI_CLEAN_DATA_DIR", os.path.join(SCRIPTS_DIR, "bids_clean"))
+
 
 def results_subdir(*parts):
     """Return <repo>/results/<parts...> creating it if needed."""

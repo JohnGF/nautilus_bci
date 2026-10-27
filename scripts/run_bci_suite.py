@@ -159,8 +159,10 @@ class MiniEEGVisualizerWidget(QWidget):
                 if samples and len(samples) > 0:
                     new_data = np.array(samples, dtype=np.float64)
 
-                    # Auto-scale Volts to Microvolts if data is in Volts (e.g. max < 0.01 V)
-                    if np.max(np.abs(new_data)) < 0.01:
+                    # Check nominal units: if values are small (< 0.05), they are in Volts -> convert to µV
+                    # Use median absolute value to avoid single-channel rail skewing unit detection
+                    med_abs = np.median(np.abs(new_data))
+                    if med_abs < 0.01:
                         new_data *= 1e6
 
                     n_new = len(new_data)
@@ -216,7 +218,7 @@ class MiniEEGVisualizerWidget(QWidget):
 
         self.plot.setYRange(-spacing * 0.8, spacing * 3.8)
 
-        # 4. Calculate Live Band Powers (FFT)
+        # 4. Calculate Live Band Powers (FFT) & Channel Health
         if len(filt_data) >= 64:
             fft_vals = np.abs(np.fft.rfft(filt_data, axis=0))
             freqs = np.fft.rfftfreq(len(filt_data), 1.0 / self.fs)
@@ -236,11 +238,26 @@ class MiniEEGVisualizerWidget(QWidget):
 
             rms = np.sqrt(np.mean(filt_data**2))
             if pulled:
-                self.lbl_signal_quality.setText(f"LIVE LSL STREAM | RMS: {rms:.1f}µV")
-                self.lbl_signal_quality.setStyleSheet("color: #00E676;")
+                # Check for railed (>4000 uV ptp) or flatline (<0.2 uV std) channels
+                ch_ptps = np.ptp(self.eeg_data, axis=0)
+                ch_stds = np.std(self.eeg_data, axis=0)
+                n_railed = int(np.sum(ch_ptps > 4000.0))
+                n_flat = int(np.sum(ch_stds < 0.2))
+
+                if n_railed > 0 or n_flat > 0:
+                    warn = []
+                    if n_railed > 0:
+                        warn.append(f"{n_railed} railed")
+                    if n_flat > 0:
+                        warn.append(f"{n_flat} flat")
+                    self.lbl_signal_quality.setText(f"⚠ LIVE: {', '.join(warn)} | RMS: {rms:.1f}µV")
+                    self.lbl_signal_quality.setStyleSheet("color: #FF7675; font-weight: bold;")
+                else:
+                    self.lbl_signal_quality.setText(f"LIVE LSL ({self.num_channels}ch OK) | RMS: {rms:.1f}µV")
+                    self.lbl_signal_quality.setStyleSheet("color: #00E676; font-weight: bold;")
             else:
-                self.lbl_signal_quality.setText(f"PREVIEW (Click Start Streamer) | RMS: {rms:.1f}µV")
-                self.lbl_signal_quality.setStyleSheet("color: #FFEAA7;")
+                self.lbl_signal_quality.setText(f"SIMULATION PREVIEW (No LSL stream connected)")
+                self.lbl_signal_quality.setStyleSheet("color: #FFEAA7; font-style: italic;")
 
 
 class BCISuiteControlCenter(QMainWindow):
@@ -256,6 +273,7 @@ class BCISuiteControlCenter(QMainWindow):
         self.music_memory_window = None
         self.calibrator_window = None
         self.video_task_window = None
+        self.spatial_3d_task_window = None
 
         self.init_ui()
 
@@ -300,14 +318,17 @@ class BCISuiteControlCenter(QMainWindow):
         stream_layout = QVBoxLayout(stream_box)
 
         stream_opts = QHBoxLayout()
-        self.radio_hw = QRadioButton("Physical g.Nautilus Device (gds_to_lsl.py)")
-        self.radio_mock = QRadioButton("Simulated Mock Streamer (mock_lsl_streamer.py)")
-        self.radio_mock.setChecked(True)
+        self.radio_gpype = QRadioButton("g.Pype Pipeline (gpype_to_lsl.py)")
+        self.radio_gpype.setChecked(True)
+        self.radio_hw = QRadioButton("Physical g.Nautilus (gds_to_lsl.py)")
+        self.radio_mock = QRadioButton("Simulated Mock (mock_lsl_streamer.py)")
         
         self.stream_btn_group = QButtonGroup()
+        self.stream_btn_group.addButton(self.radio_gpype)
         self.stream_btn_group.addButton(self.radio_hw)
         self.stream_btn_group.addButton(self.radio_mock)
 
+        stream_opts.addWidget(self.radio_gpype)
         stream_opts.addWidget(self.radio_hw)
         stream_opts.addWidget(self.radio_mock)
         stream_layout.addLayout(stream_opts)
@@ -469,6 +490,21 @@ class BCISuiteControlCenter(QMainWindow):
         layout_video.addWidget(self.btn_launch_video_task)
         task_layout.addWidget(card_video)
 
+        # Card E: 3D Spatial Motor Imagery & 6-DoF Navigation
+        card_spatial = QGroupBox("🚀 3D Spatial 6-DoF Paradigm")
+        card_spatial.setStyleSheet("QGroupBox { font-size: 11px; font-weight: bold; color: #A0A5B5; border: 1px solid #2C354A; border-radius: 6px; padding: 8px; }")
+        layout_spatial = QVBoxLayout(card_spatial)
+        lbl_spatial = QLabel("6-DoF Translation & Rotation\n(Surge, Sway, Heave, Bank)")
+        lbl_spatial.setStyleSheet("color: #58A6FF; font-size: 10px;")
+        layout_spatial.addWidget(lbl_spatial)
+
+        self.btn_launch_spatial_3d = QPushButton("🚀 Launch 3D Spatial Task")
+        self.btn_launch_spatial_3d.setFont(QFont("Arial", 10, QFont.Bold))
+        self.btn_launch_spatial_3d.setStyleSheet("background-color: #1F6FEB; color: white; padding: 8px 12px; border-radius: 5px;")
+        self.btn_launch_spatial_3d.clicked.connect(self.launch_spatial_3d_task_gui)
+        layout_spatial.addWidget(self.btn_launch_spatial_3d)
+        task_layout.addWidget(card_spatial)
+
         main_layout.addWidget(task_box)
 
         # Console Log Box
@@ -484,7 +520,12 @@ class BCISuiteControlCenter(QMainWindow):
 
     def toggle_streamer(self):
         if self.streamer_process is None:
-            script_name = "gds_to_lsl.py" if self.radio_hw.isChecked() else "mock_lsl_streamer.py"
+            if self.radio_gpype.isChecked():
+                script_name = "gpype_to_lsl.py"
+            elif self.radio_hw.isChecked():
+                script_name = "gds_to_lsl.py"
+            else:
+                script_name = "mock_lsl_streamer.py"
             base_dir = os.path.dirname(__file__)
             script_path = os.path.join(base_dir, "bridges", script_name)
             if not os.path.exists(script_path):
@@ -492,7 +533,7 @@ class BCISuiteControlCenter(QMainWindow):
             
             self.log(f"Starting EEG Streamer ({script_name})...")
             args = [sys.executable, script_path]
-            if self.radio_hw.isChecked():
+            if self.radio_hw.isChecked() or self.radio_gpype.isChecked():
                 args.append("--non-interactive")
 
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
@@ -640,6 +681,19 @@ class BCISuiteControlCenter(QMainWindow):
             self.video_task_window.show()
         else:
             self.video_task_window.activateWindow()
+
+    def launch_spatial_3d_task_gui(self):
+        if self.spatial_3d_task_window is None or not self.spatial_3d_task_window.isVisible():
+            self.log("Launching 3D Spatial Motor Imagery & 6-DoF Neurofeedback Window...")
+            from tasks import spatial_3d_task
+            import importlib
+            importlib.reload(spatial_3d_task)
+            self.spatial_3d_task_window = spatial_3d_task.Spatial3DTaskApp()
+            self.spatial_3d_task_window.sub_input.setText(f"sub-{self.txt_sub.text().strip()}")
+            self.spatial_3d_task_window.ses_input.setText(f"ses-{self.txt_ses.text().strip()}")
+            self.spatial_3d_task_window.show()
+        else:
+            self.spatial_3d_task_window.activateWindow()
 
     def update_status(self):
         try:
