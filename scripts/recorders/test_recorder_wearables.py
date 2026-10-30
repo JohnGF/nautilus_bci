@@ -166,3 +166,42 @@ def test_refit_of_short_session_reports_no_drift():
     offsets, drift = fit_offsets(x, y, delay, np.array([0.0, 5.0, 20.0]))
     assert drift is None
     assert np.allclose(offsets, 1.000)    # fastest exchange, no extrapolated slope
+
+
+def test_gaze_and_thermal_grid_are_exported(tmp_path):
+    recorder = MultimodalBIDSRecorder(bids_root=str(tmp_path))
+    recorder.start_time_lsl = START
+    # KinectGaze publishes no <channels> desc; labels come from KNOWN_CHANNELS
+    gaze = StreamInfo("KinectGaze", "Gaze", 10, 30.0, "float32", "kinect_v2_eyetracker")
+    add_stream(recorder, gaze, [[float(i)] * 10 for i in range(30)], np.arange(30) / 30)
+    roi = StreamInfo("HIKMICRO_Temperature_RoI", "TEMPERATURE_ROI", 13, 25.0, "float32", "hik-roi")
+    add_stream(recorder, roi, [[30.0] * 13] * 3, [0.0, 5.0, 10.0])
+    grid = StreamInfo("HIKMICRO_Temperature", "TEMPERATURE", 192 * 256, 25.0, "float32", "hik-temp")
+    grid.desc().append_child_value("rows", "192")
+    grid.desc().append_child_value("cols", "256")
+    unit = grid.desc().append_child("channels").append_child("channel")
+    unit.append_child_value("label", "px_0")
+    unit.append_child_value("unit", "degC")
+    add_stream(recorder, grid, [], [0.0, 5.0, 10.0])
+    # Grids are buffered as float32 chunk arrays, not row lists
+    recorder.data_buffers["HIKMICRO_Temperature"] = [np.full((2, 192 * 256), 31.0, np.float32),
+                                                     np.full((1, 192 * 256), 33.0, np.float32)]
+
+    recorder.stop_and_export_bids(subject_id="01", session_id="01", task_name="rest")
+
+    beh = session_dir(tmp_path, "beh", "sub-01_ses-01_task-rest_recording-")
+    df = read_wearable(beh + "KinectGaze_physio.tsv.gz")
+    assert list(df.columns)[:3] == ["timestamp_sec", "gaze_x", "gaze_y"] and len(df) == 30
+    assert json.load(open(beh + "KinectGaze_physio.json"))["Units"]["head_dist"] == "cm"
+    assert len(read_wearable(beh + "HIKMICROTemperatureRoI_physio.tsv.gz")) == 3
+
+    npz = os.path.join(tmp_path, "sourcedata", "sub-01", "ses-01", "thermal",
+                       "sub-01_ses-01_task-rest_recording-HIKMICROTemperature_thermal")
+    z = np.load(npz + ".npz")
+    assert z["frames"].shape == (3, 192, 256) and z["frames"].dtype == np.float32
+    assert list(z["timestamp_sec"]) == [0.0, 5.0, 10.0] and z["frames"][2].mean() == 33.0
+    meta = json.load(open(npz + ".json"))
+    assert (meta["FrameShape"], meta["Units"], meta["FrameCount"]) == ([192, 256], "degC", 3)
+    # The grid never lands in the BIDS tree, and PPG lookups ignore gaze/thermal physio
+    assert not any("HIKMICROTemperature_" in f for _, _, fs in os.walk(session_dir(tmp_path)) for f in fs)
+    assert find_wearable_files(session_dir(tmp_path), "01", "01", "rest", "physio") == []

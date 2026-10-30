@@ -1,6 +1,6 @@
 """
-Multimodal BIDS Dataset Recorder (EEG + Smartwatch IMU + Smartwatch PPG + Markers)
-===================================================================================
+Multimodal BIDS Dataset Recorder (EEG + wearables + gaze + thermal + Markers)
+=============================================================================
 
 Connects to all active LSL streams on your local network:
   - EEG Stream        (e.g., 'gNautilus' 32-channel EEG)
@@ -8,6 +8,8 @@ Connects to all active LSL streams on your local network:
   - Wearable PPG      (e.g., 'HR_L_wrist', legacy 'Smartwatch_PPG')
   - Wearable touch    (e.g., 'TOUCH_L_wrist')
   - Clock sync        ('ClockSync_*' ping/echo exchanges from the wearable bridge)
+  - Gaze              ('KinectGaze', type GAZE: screen gaze, head pose, blinks)
+  - Thermal           ('HIKMICRO_Temperature_RoI' summary; 'HIKMICRO_Temperature' 256x192 grid)
   - Event Markers     (e.g., 'MotorImageryMarkers')
 
 Saves everything into a standardized Multimodal BIDS Dataset with aligned timestamps.
@@ -16,6 +18,9 @@ physio (eeg|beh/*_recording-<stream>_physio.tsv.gz) with labels, units, device a
 location in the sidecars; read them with utils.bids_wearables.read_wearable. Their raw
 device clock and the clock-sync exchanges go to sourcedata/ so refit_wearable_clocks.py
 can redo the clock fit offline over the whole session.
+Gaze and the thermal RoI vector are written as physio the same way. The full thermal
+grid has no BIDS datatype, so it goes to sourcedata/.../thermal/*_thermal.npz
+(frames float32 [n, rows, cols] in degC + timestamp_sec).
 
 Usage:
   uv run python multimodal_bids_recorder.py --duration 30 --sub 01 --ses 01 --task leftright
@@ -36,6 +41,7 @@ import time
 import json
 import re
 import argparse
+import signal
 import threading
 import numpy as np
 import pandas as pd
@@ -49,6 +55,17 @@ from utils.bids_wearables import TIMESTAMP_COLUMN, write_wearable
 
 
 WEARABLE_TYPES = ('IMU', 'PPG', 'TOUCH')
+# Other numeric streams that fit the physio layout (timestamp_sec + one column per channel)
+PHYSIO_TYPES = ('GAZE', 'TEMPERATURE_ROI')
+# Above this many channels a stream is an image (thermal grid): buffered as float32
+# arrays instead of Python lists and exported to sourcedata as .npz
+GRID_MIN_CHANNELS = 1024
+# Outlets that publish no <channels> desc; labels/units from the publisher's source
+KNOWN_CHANNELS = {
+    'KinectGaze': [('gaze_x', 'px'), ('gaze_y', 'px'), ('head_x', 'px'), ('head_y', 'px'),
+                   ('head_yaw', 'deg'), ('head_pitch', 'deg'), ('head_roll', 'deg'),
+                   ('head_dist', 'cm'), ('blink_l', 'n/a'), ('blink_r', 'n/a')],
+}
 CLOCKSYNC_TYPE = 'CLOCKSYNC'
 DEVICE_TIME_LABEL = 'DeviceTime'  # raw device clock channel appended by the wearable bridge
 BIDS_MOTION_TYPES = {'accel': 'ACCEL', 'gyro': 'GYRO'}
@@ -63,7 +80,11 @@ def stream_metadata(info):
                          'type': ch.child_value("type")})
         ch = ch.next_sibling("channel")
     if len(channels) != info.channel_count() or not all(c['label'] for c in channels):
-        channels = [{'label': f"ch_{i + 1}", 'unit': '', 'type': ''} for i in range(info.channel_count())]
+        known = KNOWN_CHANNELS.get(info.name())
+        if known and len(known) == info.channel_count():
+            channels = [{'label': label, 'unit': unit, 'type': ''} for label, unit in known]
+        else:
+            channels = [{'label': f"ch_{i + 1}", 'unit': '', 'type': ''} for i in range(info.channel_count())]
     desc = info.desc()
     return {
         'channels': channels,
@@ -223,7 +244,10 @@ class MultimodalBIDSRecorder:
                                         pass
                                 self.marker_events.append((t - self.start_time_lsl, m_str, duration))
                         else:
-                            self.data_buffers[sname].extend(chunk)
+                            if item['n_ch'] >= GRID_MIN_CHANNELS:
+                                self.data_buffers[sname].append(np.asarray(chunk, dtype=np.float32))
+                            else:
+                                self.data_buffers[sname].extend(chunk)
                             self.timestamp_buffers[sname].extend([t - self.start_time_lsl for t in timestamps])
                 except Exception:
                     # If stream fails/disconnects, we can remove it so we attempt reconnect later
@@ -325,6 +349,7 @@ class MultimodalBIDSRecorder:
         # 2. Export wearable streams (IMU, PPG, touch) and their clock-sync data
         self._export_wearables(sub_clean, ses_clean, task_name, eeg_stream_name)
         self._export_clock_sync(sub_clean, ses_clean, task_name)
+        self._export_grids(sub_clean, ses_clean, task_name)
 
         print("=" * 70)
         print(f" Multimodal BIDS Export Complete! Root: {self.bids_root} ".center(70, "="))
@@ -347,7 +372,8 @@ class MultimodalBIDSRecorder:
         # Physio belongs beside the data it accompanies: the EEG run if there is one
         physio_folder = 'eeg' if eeg_stamps else 'beh'
         wearables = [sname for sname, item in self.streams.items()
-                     if item['type'] in WEARABLE_TYPES or 'Smartwatch' in sname]
+                     if (item['type'] in WEARABLE_TYPES + PHYSIO_TYPES or 'Smartwatch' in sname)
+                     and item['n_ch'] < GRID_MIN_CHANNELS]
 
         for sname in wearables:
             item = self.streams[sname]
@@ -437,6 +463,41 @@ class MultimodalBIDSRecorder:
         if wearables:
             self._ensure_dataset_description()
 
+    def _export_grids(self, sub, ses, task):
+        """Image-like streams (thermal grid) to sourcedata/<sub>/<ses>/thermal/ as compressed .npz.
+        BIDS has no thermal datatype; sourcedata keeps the raw frames next to the dataset."""
+        _, source_dir = self._session_dirs(sub, ses)
+        for sname, item in self.streams.items():
+            chunks = self.data_buffers.get(sname)
+            if item['n_ch'] < GRID_MIN_CHANNELS or not chunks:
+                continue
+            frames = np.concatenate(chunks)
+            stamps = np.array(self.timestamp_buffers[sname])
+            desc = item['info'].desc()
+            rows, cols = desc.child_value("rows"), desc.child_value("cols")
+            if rows.isdigit() and cols.isdigit() and int(rows) * int(cols) == frames.shape[1]:
+                frames = frames.reshape(len(frames), int(rows), int(cols))
+            out_folder = os.path.join(source_dir, "thermal")
+            os.makedirs(out_folder, exist_ok=True)
+            base = f"sub-{sub}_ses-{ses}_task-{task}_recording-{bids_label(sname)}_thermal"
+            path = os.path.join(out_folder, f"{base}.npz")
+            np.savez_compressed(path, frames=frames, timestamp_sec=stamps)
+            unit = desc.child("channels").child("channel").child_value("unit") or 'n/a'
+            duration = float(stamps[-1] - stamps[0]) if len(stamps) > 1 else 0.0
+            with open(os.path.join(out_folder, f"{base}.json"), 'w') as f:
+                json.dump({"StreamName": sname, "StreamType": item['type'],
+                           "LSLSourceID": item['info'].source_id(),
+                           "Manufacturer": desc.child_value("manufacturer"),
+                           "ManufacturersModelName": desc.child_value("model"),
+                           "FrameShape": list(frames.shape[1:]), "Units": unit,
+                           "FrameCount": len(frames),
+                           "SamplingFrequency": item['srate'],
+                           "SamplingFrequencyEffective": round((len(stamps) - 1) / duration, 3) if duration > 0 else 0.0,
+                           "LSLStartTime": self.start_time_lsl,
+                           "Description": "np.load(path): frames [n, rows, cols] float32, timestamp_sec [n] "
+                                          "on the same axis as the BIDS physio/motion files."}, f, indent=2)
+            print(f"[+] Exported {len(frames)} frames of '{sname}' {list(frames.shape[1:])} to: {path}")
+
     def _ensure_dataset_description(self):
         # MNE-BIDS writes it with the EEG; a wearables-only session needs one to be a valid dataset
         path = os.path.join(self.bids_root, "dataset_description.json")
@@ -496,7 +557,10 @@ def main():
     try:
         time.sleep(args.duration)
     except KeyboardInterrupt:
-        print("\n[*] Manual stop requested.")
+        pass
+    # A second Ctrl+C (or a launcher re-sending SIGINT) must not abort the export and lose the session
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    print("\n[*] Stopping; exporting (further Ctrl+C is ignored until the export finishes).")
 
     recorder.stop_and_export_bids(subject_id=args.sub, session_id=args.ses, task_name=args.task)
 
