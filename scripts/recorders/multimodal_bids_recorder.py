@@ -20,7 +20,9 @@ device clock and the clock-sync exchanges go to sourcedata/ so refit_wearable_cl
 can redo the clock fit offline over the whole session.
 Gaze and the thermal RoI vector are written as physio the same way. The full thermal
 grid has no BIDS datatype, so it goes to sourcedata/.../thermal/*_thermal.npz
-(frames float32 [n, rows, cols] in degC + timestamp_sec).
+(frames float32 [n, rows, cols] in degC + timestamp_sec). The HIKMICRO_Meta stream goes
+next to it (*_thermalmeta.tsv.gz) with a *_thermalcal.json summary of the raw->degC
+calibration and the end-of-session drift check.
 
 Usage:
   uv run python multimodal_bids_recorder.py --duration 30 --sub 01 --ses 01 --task leftright
@@ -67,6 +69,7 @@ KNOWN_CHANNELS = {
                    ('head_dist', 'cm'), ('blink_l', 'n/a'), ('blink_r', 'n/a')],
 }
 CLOCKSYNC_TYPE = 'CLOCKSYNC'
+THERMAL_META_TYPE = 'META'  # HIKMICRO_Meta: JSON per frame (calibration) + drift_check events
 DEVICE_TIME_LABEL = 'DeviceTime'  # raw device clock channel appended by the wearable bridge
 BIDS_MOTION_TYPES = {'accel': 'ACCEL', 'gyro': 'GYRO'}
 
@@ -350,6 +353,7 @@ class MultimodalBIDSRecorder:
         self._export_wearables(sub_clean, ses_clean, task_name, eeg_stream_name)
         self._export_clock_sync(sub_clean, ses_clean, task_name)
         self._export_grids(sub_clean, ses_clean, task_name)
+        self._export_thermal_meta(sub_clean, ses_clean, task_name)
 
         print("=" * 70)
         print(f" Multimodal BIDS Export Complete! Root: {self.bids_root} ".center(70, "="))
@@ -497,6 +501,48 @@ class MultimodalBIDSRecorder:
                            "Description": "np.load(path): frames [n, rows, cols] float32, timestamp_sec [n] "
                                           "on the same axis as the BIDS physio/motion files."}, f, indent=2)
             print(f"[+] Exported {len(frames)} frames of '{sname}' {list(frames.shape[1:])} to: {path}")
+
+    def _export_thermal_meta(self, sub, ses, task):
+        """HIKMICRO_Meta (JSON string per frame plus one-off events) to sourcedata/.../thermal/.
+
+        Writes every sample as <base>_thermalmeta.tsv.gz (timestamp_sec, json) and a
+        <base>_thermalcal.json summary: each raw->degC calibration in force (swp backend)
+        and the end-of-session drift_check events."""
+        _, source_dir = self._session_dirs(sub, ses)
+        for sname, item in self.streams.items():
+            rows = self.data_buffers.get(sname)
+            if item['type'] != THERMAL_META_TYPE or 'HIKMICRO' not in sname or not rows:
+                continue
+            stamps = self.timestamp_buffers[sname]
+            texts = [r[0] if isinstance(r, (list, tuple)) else str(r) for r in rows]
+            calibrations, drift_checks = [], []
+            for t, text in zip(stamps, texts):
+                try:
+                    d = json.loads(text)
+                except ValueError:
+                    continue
+                if d.get('event') == 'drift_check':
+                    drift_checks.append({'timestamp_sec': t, **{k: v for k, v in d.items() if k != 'event'}})
+                elif 'cal_slope' in d:
+                    cal = {k: v for k, v in d.items() if k.startswith('cal_')}
+                    if not calibrations or {k: v for k, v in calibrations[-1].items() if k != 'timestamp_sec'} != cal:
+                        calibrations.append({'timestamp_sec': t, **cal})
+            out_folder = os.path.join(source_dir, "thermal")
+            os.makedirs(out_folder, exist_ok=True)
+            base = f"sub-{sub}_ses-{ses}_task-{task}_recording-{bids_label(sname)}"
+            path = os.path.join(out_folder, f"{base}_thermalmeta.tsv.gz")
+            pd.DataFrame({'timestamp_sec': stamps, 'json': texts}).to_csv(
+                path, sep='\t', index=False, float_format='%.6f')
+            with open(os.path.join(out_folder, f"{base}_thermalcal.json"), 'w') as f:
+                json.dump({"StreamName": sname, "LSLSourceID": item['info'].source_id(),
+                           "Calibrations": calibrations, "DriftChecks": drift_checks,
+                           "Description": "degC = cal_slope * raw + cal_offset, fitted against a camera "
+                                          "SDK snapshot at stream start. A drift check compares the "
+                                          "applied calibration with a fresh snapshot at stream end: "
+                                          "median_err_c is applied minus snapshot. timestamp_sec is on "
+                                          "the same axis as the BIDS physio files."}, f, indent=2)
+            print(f"[+] Exported '{sname}' ({len(texts)} samples, {len(calibrations)} calibration(s), "
+                  f"{len(drift_checks)} drift check(s)) to: {path}")
 
     def _ensure_dataset_description(self):
         # MNE-BIDS writes it with the EEG; a wearables-only session needs one to be a valid dataset

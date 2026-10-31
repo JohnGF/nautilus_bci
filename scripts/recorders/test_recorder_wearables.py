@@ -205,3 +205,24 @@ def test_gaze_and_thermal_grid_are_exported(tmp_path):
     # The grid never lands in the BIDS tree, and PPG lookups ignore gaze/thermal physio
     assert not any("HIKMICROTemperature_" in f for _, _, fs in os.walk(session_dir(tmp_path)) for f in fs)
     assert find_wearable_files(session_dir(tmp_path), "01", "01", "rest", "physio") == []
+
+
+def test_thermal_meta_calibration_and_drift_are_exported(tmp_path):
+    recorder = MultimodalBIDSRecorder(bids_root=str(tmp_path))
+    recorder.start_time_lsl = START
+    meta = StreamInfo("HIKMICRO_Meta", "META", 1, 0.0, "string", "hik-meta")
+    cal = {"cal_slope": 0.0333, "cal_offset": -127.0, "cal_corr": 0.995, "cal_wall_time": "t0"}
+    samples = [{"frame": i, "mean_c": 30.0, **cal} for i in range(3)]
+    samples.append({"event": "drift_check", "median_err_c": -0.12, "fit_corr": 0.999, **cal})
+    add_stream(recorder, meta, [[json.dumps(d)] for d in samples], [0.0, 0.2, 0.4, 0.6])
+
+    recorder.stop_and_export_bids(subject_id="01", session_id="01", task_name="rest")
+
+    base = os.path.join(tmp_path, "sourcedata", "sub-01", "ses-01", "thermal",
+                        "sub-01_ses-01_task-rest_recording-HIKMICROMeta")
+    df = pd.read_csv(base + "_thermalmeta.tsv.gz", sep="\t")
+    assert list(df.columns) == ["timestamp_sec", "json"] and len(df) == 4
+    summary = json.load(open(base + "_thermalcal.json"))
+    assert summary["Calibrations"] == [{"timestamp_sec": 0.0, **cal}]
+    assert summary["DriftChecks"][0]["median_err_c"] == -0.12
+    assert summary["DriftChecks"][0]["timestamp_sec"] == 0.6
