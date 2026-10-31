@@ -254,7 +254,11 @@ def run_udp_server(host, port, registry, legacy):
                     if packet is None:
                         handle_legacy_udp(text, legacy, legacy_clock)
                 if packet is not None:
-                    registry.handle(packet, arrival, addr)
+                    try:
+                        registry.handle(packet, arrival, addr)
+                    except Exception as e:  # one misbehaving device must not stop the others
+                        print(f"[-] Dropped {packet.kind} packet from {packet.device_id}: {e}")
+                        continue
                     # Ping right after the device's own packet: its radio is still awake
                     ping = registry.next_ping(packet.device_id, local_clock())
                     if ping is not None:

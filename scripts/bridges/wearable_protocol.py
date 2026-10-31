@@ -29,6 +29,7 @@ SYNC_CHANNELS = [("t1_ping_sent", "s_lsl"), ("t2_ping_received", "s_device"),
 STALE_AFTER_S = 3.0
 SEQ_MOD = 2 ** 32
 SEQ_RESTART_GAP = 1000  # a jump this large means the device restarted, not that packets were lost
+SEQ_MISSING_MAX = 256  # remember this many recently missed seqs, so late UDP arrivals can be un-counted
 
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
@@ -156,6 +157,7 @@ class Device:
     addr: tuple = None
     outlets: dict = field(default_factory=dict)
     last_seq: int = None
+    missing: set = field(default_factory=set)  # recently missed seqs (late arrivals un-count)
     packets: int = 0
     lost: int = 0
     battery: int = None
@@ -261,10 +263,19 @@ class DeviceRegistry:
 
     @staticmethod
     def _track_seq(dev, seq):
+        if seq in dev.missing:
+            # Late UDP arrival: it was counted lost when a newer packet overtook it
+            dev.missing.discard(seq)
+            dev.lost -= 1
+            return
         if dev.last_seq is not None:
             gap = (seq - dev.last_seq - 1) % SEQ_MOD
             if 0 < gap < SEQ_RESTART_GAP:
                 dev.lost += gap
+                if gap <= SEQ_MISSING_MAX:
+                    dev.missing.update((dev.last_seq + 1 + k) % SEQ_MOD for k in range(gap))
+                if len(dev.missing) > SEQ_MISSING_MAX:  # keep only the most recent gaps
+                    dev.missing = set(sorted(dev.missing, key=lambda s: (seq - s) % SEQ_MOD)[:SEQ_MISSING_MAX])
         dev.last_seq = seq
 
     def status_lines(self):
