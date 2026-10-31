@@ -38,7 +38,10 @@ import numpy as np
 from pylsl import StreamInfo, StreamOutlet, local_clock
 
 from clock_sync import ECHO_KIND, PING_PREFIX
-from wearable_protocol import DeviceClockMapper, DeviceRegistry, format_packet, parse_packet
+import threading
+
+from wearable_protocol import (BEACON_PORT, DeviceClockMapper, DeviceRegistry, format_beacon,
+                               format_packet, parse_packet)
 
 # Try importing websockets for websocket server mode
 try:
@@ -224,7 +227,36 @@ def handle_legacy_udp(text, legacy, clock):
             pass
 
 
-def run_udp_server(host, port, registry, legacy):
+def beacon_targets(local_ip):
+    """Limited broadcast leaves through the default interface only, so also hit this host's /24."""
+    targets = ["255.255.255.255"]
+    parts = local_ip.split(".")
+    if len(parts) == 4 and local_ip != "127.0.0.1":
+        targets.append(".".join(parts[:3] + ["255"]))
+    return targets
+
+
+def start_beacon(port, local_ip, period_s=1.0):
+    """Announce this bridge once a second on BEACON_PORT so devices set to 'auto' find it."""
+    payload = format_beacon(socket.gethostname(), port).encode()
+    targets = beacon_targets(local_ip)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+    def loop():
+        while True:
+            for addr in targets:
+                try:
+                    sock.sendto(payload, (addr, BEACON_PORT))
+                except OSError:
+                    pass  # no route right now (Wi-Fi down); try again next period
+            time.sleep(period_s)
+
+    threading.Thread(target=loop, name="beacon", daemon=True).start()
+    print(f"    Discovery beacon: {payload.decode()} -> {', '.join(targets)} :{BEACON_PORT} every {period_s:g}s")
+
+
+def run_udp_server(host, port, registry, legacy, beacon=True):
     """Listen for W2 packets from any number of wearables, plus legacy single-watch packets."""
     print(f"\n[+] Starting UDP server on {host}:{port}...")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -233,6 +265,8 @@ def run_udp_server(host, port, registry, legacy):
     sock.bind((host, port))
     sock.settimeout(1.0)  # wake up for the status table even when every device is silent
 
+    if beacon:
+        start_beacon(port, get_local_ip())
     print("    Listening for UDP packets from wearables... Press Ctrl+C to stop.")
     legacy_clock = DeviceClockMapper()
     next_status = time.monotonic() + STATUS_EVERY_S
@@ -329,6 +363,8 @@ def main():
     parser.add_argument('--host', default='0.0.0.0', help="Host IP to bind")
     parser.add_argument('--port', type=int, default=8080, help="Port to listen on")
     parser.add_argument('--mock', action='store_true', help="Simulate four W2 devices for testing")
+    parser.add_argument('--no-beacon', action='store_true',
+                        help=f"UDP mode: do not broadcast the discovery beacon on port {BEACON_PORT}")
 
     args = parser.parse_args()
 
@@ -345,7 +381,7 @@ def main():
     if args.mock:
         run_mock_stream(registry)
     elif args.mode == 'udp':
-        run_udp_server(args.host, args.port, registry, legacy)
+        run_udp_server(args.host, args.port, registry, legacy, beacon=not args.no_beacon)
     elif args.mode == 'websocket':
         if not HAS_WEBSOCKETS:
             print("[-] 'websockets' package not installed. Run: `pip install websockets` or `uv add websockets`.")
