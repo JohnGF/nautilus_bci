@@ -45,6 +45,18 @@ Send `HB` once a second. It drives the bridge's status table (battery level, sta
 W2|wear-3fa91c|L_wrist|8812|IMU@50|51234560000000,0.12,-0.40,9.79,0.01,0.00,-0.02;51234580000000,0.10,-0.41,9.80,0.01,0.01,-0.02
 ```
 
+## Discovery
+
+In UDP mode the bridge broadcasts a beacon once a second to port **5006**:
+
+    W2B|<hostname>|<udp_port>|1
+
+sent to `255.255.255.255` and to the PC's /24 broadcast address. A device whose target is set to
+`auto` (the default in galaxy_watch_lsl 1.4+) listens on 5006 and sends its packets to the address
+the beacon came from, on `<udp_port>`. It keeps listening, so it follows a PC whose IP changes.
+A fixed IP still works and ignores beacons. Start the bridge with `--no-beacon` to turn the
+beacon off, e.g. when two bridges share a network and devices must use fixed IPs.
+
 ## Timing
 
 LSL keeps clocks in sync between machines that run liblsl, but a watch or an ESP32 sends plain UDP, so the device-to-bridge hop is outside LSL. The bridge closes that gap with ping/echo, the same method NTP and LSL's own `time_correction` use.

@@ -20,6 +20,9 @@ from pylsl import StreamInfo, StreamOutlet, local_clock
 from clock_sync import ECHO_KIND, DeviceSync, format_ping
 
 TAG = "W2"
+BEACON_TAG = "W2B"
+BEACON_PORT = 5006       # bridge -> broadcast, so devices set to "auto" find it without a typed-in IP
+BEACON_VERSION = 1
 STATUS_KIND = "HB"  # heartbeat: sent, dropped, battery_pct; status only, not an LSL stream
 # Appended to every data stream: the sample's raw device timestamp, so a recording can redo the
 # clock fit offline against the ClockSync_* exchanges. double64, since float32 would round it to ~10 ms.
@@ -140,6 +143,24 @@ def make_stream_info(name, stream_type, source_id, srate, channels, device_id, l
         ch.append_child_value("unit", unit)
         ch.append_child_value("type", ch_type[0] if ch_type else stream_type)
     return info
+
+
+def format_beacon(hostname, port):
+    """Discovery beacon: W2B|<hostname>|<udp_port>|<version>. '|' in the hostname would break parsing."""
+    name = re.sub(r"[^A-Za-z0-9._-]", "-", hostname)[:64] or "bridge"
+    return f"{BEACON_TAG}|{name}|{int(port)}|{BEACON_VERSION}"
+
+
+def parse_beacon(text):
+    """(hostname, port) from a beacon, or None. Mirrors the device-side parser."""
+    parts = text.strip().split("|")
+    if len(parts) < 3 or parts[0] != BEACON_TAG:
+        return None
+    try:
+        port = int(parts[2])
+    except ValueError:
+        return None
+    return (parts[1], port) if 0 < port < 65536 else None
 
 
 def make_outlet(*args, **kwargs):

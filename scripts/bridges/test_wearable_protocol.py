@@ -162,3 +162,11 @@ def test_late_packets_are_not_counted_as_lost():
     assert registry.devices["a"].lost == 0
     registry.handle(parse_packet(format_packet("a", "L_wrist", 10, "IMU", [(10, [0.0] * 6)])))
     assert registry.devices["a"].lost == 1  # 9 really is missing
+
+
+def test_beacon_roundtrip_and_hostname_sanitising():
+    from wearable_protocol import BEACON_PORT, format_beacon, parse_beacon
+    assert BEACON_PORT == 5006
+    assert format_beacon("lab-pc", 5005) == "W2B|lab-pc|5005|1"
+    assert parse_beacon(format_beacon("my|odd host", 5005)) == ("my-odd-host", 5005)
+    assert parse_beacon("W2P|3") is None and parse_beacon("W2B|pc|x") is None and parse_beacon("W2B|pc|70000") is None
