@@ -153,3 +153,12 @@ def test_echo_publishes_raw_exchanges_and_takes_over_timing():
     registry.handle(parse_packet("W2|a|L_wrist|2|IMU|5000000000,0,0,0,0,0,0"), arrival=2000.0)
     imu = next(o for o in outlets if o.type == "IMU")
     assert imu.pushed[0][1] == pytest.approx(1005.0, abs=1e-6)
+
+
+def test_late_packets_are_not_counted_as_lost():
+    registry, _ = make_registry()
+    for seq in (5, 7, 6, 8):  # 6 arrives after 7: reordered, nothing lost
+        registry.handle(parse_packet(format_packet("a", "L_wrist", seq, "IMU", [(seq, [0.0] * 6)])))
+    assert registry.devices["a"].lost == 0
+    registry.handle(parse_packet(format_packet("a", "L_wrist", 10, "IMU", [(10, [0.0] * 6)])))
+    assert registry.devices["a"].lost == 1  # 9 really is missing

@@ -31,6 +31,9 @@ BURST_PERIOD_S = 10.0
 PING_TIMEOUT_S = 2.0
 FIT_WINDOW = 30         # bursts in the drift fit, ~5 min
 MAX_SILENT_BURSTS = 3   # stop pinging devices that never answer (older firmware)
+# Burst points are each off by ~1-2 ms, so over 10 s a slope is noise (+-200 ppm); only fit
+# drift once the points span a minute, where the same noise is ~30 ppm and shrinking
+MIN_DRIFT_SPAN_S = 60.0
 PING_ID_MOD = 1 << 24   # ids travel as float32 on the device side; exact below 2^24
 
 
@@ -140,9 +143,10 @@ class DeviceSync:
     def _fit(self):
         x = np.array([p.t2 for p in self.points])
         y = np.array([p.offset for p in self.points])
-        self.x_ref = x[-1]
-        if len(x) < 3 or x[-1] - x[0] < 1.0:
-            # Too little spread for a slope; keep the previous drift estimate
-            self.intercept = y[-1]
+        if len(x) < 3 or x[-1] - x[0] < MIN_DRIFT_SPAN_S:
+            # Too short for a slope: the single fastest exchange is the best offset there is
+            best = min(self.points, key=lambda p: p.delay)
+            self.x_ref, self.intercept, self.slope = best.t2, best.offset, 0.0
             return
+        self.x_ref = x[-1]
         self.slope, self.intercept = np.polyfit(x - self.x_ref, y, 1)

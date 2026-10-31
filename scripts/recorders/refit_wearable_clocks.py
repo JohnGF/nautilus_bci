@@ -16,19 +16,25 @@ Usage:
   uv run python recorders/refit_wearable_clocks.py bids_dataset_multimodal          # report only
   uv run python recorders/refit_wearable_clocks.py bids_dataset_multimodal --apply  # rewrite timestamp_sec
 
---apply rewrites timestamp_sec in each wearable TSV and records the refit in its JSON.
+--apply rewrites timestamp_sec in each wearable file (motion TSV or physio .tsv.gz) and
+records the refit in its JSON.
 The live timestamps stay in the devicetime file, so applying again gives the same result.
 """
 import argparse
 import glob
 import json
 import os
+import sys
 
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils.bids_wearables import read_wearable, write_wearable  # noqa: E402
+
 BURST_GAP_S = 2.0      # exchanges further apart than this belong to different bursts
 WINDOW_S = 300.0       # centred window for the local offset + drift fit
+MIN_DRIFT_SPAN_S = 60.0  # shorter spans make a slope out of noise (~200 ppm over 10 s)
 
 
 def burst_points(exchanges):
@@ -44,20 +50,21 @@ def burst_points(exchanges):
     return t2[best], offset[best], delay[best]
 
 
-def fit_offsets(x, y, device_times, window_s=WINDOW_S):
+def fit_offsets(x, y, delay, device_times, window_s=WINDOW_S):
     """Offset (recording time - device time) at each device time, and the device clock's
-    rate error (positive = device runs fast).
+    rate error (positive = device runs fast; None if the session is too short to tell).
 
     A local line is fitted through the burst points within +-window_s/2 of each point
     (so each one uses exchanges before and after it), then evaluated between points by
     linear interpolation and beyond the ends along the end lines."""
-    if len(x) == 1:
-        return np.full(len(device_times), y[0]), 0.0
+    if len(x) < 3 or np.ptp(x) < MIN_DRIFT_SPAN_S:
+        # Too short for drift: the burst with the fastest exchange gives the offset
+        return np.full(len(device_times), y[np.argmin(delay)]), None
     smooth = np.empty(len(x))
     slopes = np.empty(len(x))
     for i, xi in enumerate(x):
         near = np.abs(x - xi) <= window_s / 2
-        if near.sum() >= 2 and np.ptp(x[near]) > 0:
+        if near.sum() >= 3 and np.ptp(x[near]) >= MIN_DRIFT_SPAN_S:
             slopes[i], intercept = np.polyfit(x[near] - xi, y[near], 1)
             smooth[i] = intercept
         else:
@@ -66,7 +73,7 @@ def fit_offsets(x, y, device_times, window_s=WINDOW_S):
     before, after = device_times < x[0], device_times > x[-1]
     out[before] = smooth[0] + slopes[0] * (device_times[before] - x[0])
     out[after] = smooth[-1] + slopes[-1] * (device_times[after] - x[-1])
-    slope = np.polyfit(x - x[0], y, 1)[0] if np.ptp(x) > 0 else 0.0
+    slope = np.polyfit(x - x[0], y, 1)[0]
     return out, -slope  # offset shrinks when the device clock runs fast; report fast as positive
 
 
@@ -89,27 +96,28 @@ def refit_session_stream(bids_root, devicetime_json, apply=False):
 
     dev = pd.read_csv(devicetime_json.replace('.json', '.tsv'), sep='\t')
     x, y, delay = burst_points(pd.read_csv(sync_tsv, sep='\t'))
-    offsets, drift = fit_offsets(x, y, dev['device_time_s'].to_numpy())
+    offsets, drift = fit_offsets(x, y, delay, dev['device_time_s'].to_numpy())
     refit = dev['device_time_s'].to_numpy() + offsets
     change = refit - dev['timestamp_sec'].to_numpy()
     report = {
         "stream": name,
         "status": "applied" if apply else "report only",
         "bursts": int(len(x)),
-        "device_drift_ppm": round(float(drift) * 1e6, 2),  # positive = device clock runs fast
+        # positive = device clock runs fast; None when bursts span under MIN_DRIFT_SPAN_S
+        "device_drift_ppm": None if drift is None else round(float(drift) * 1e6, 2),
         "median_bound_ms": round(float(np.median(delay) / 2 * 1e3), 3),
         "change_vs_live_ms": {"median": round(float(np.median(np.abs(change)) * 1e3), 3),
                               "max": round(float(np.max(np.abs(change)) * 1e3), 3)},
     }
 
     if apply:
-        data_tsv = os.path.join(bids_root, dev_meta["DataFile"])
-        data = pd.read_csv(data_tsv, sep='\t')
+        data_path = os.path.join(bids_root, dev_meta["DataFile"])
+        data = read_wearable(data_path)
         if len(data) != len(refit):
             return {**report, "status": f"skipped: {len(data)} rows in data, {len(refit)} in devicetime"}
         data['timestamp_sec'] = refit
-        data.to_csv(data_tsv, sep='\t', index=False)
-        sidecar_path = data_tsv.replace('.tsv', '.json')
+        write_wearable(data_path, data)
+        sidecar_path = data_path.replace('.tsv.gz', '.json').replace('.tsv', '.json')
         with open(sidecar_path) as f:
             sidecar = json.load(f)
         sidecar["ClockRefit"] = {

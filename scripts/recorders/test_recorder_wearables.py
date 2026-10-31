@@ -12,10 +12,12 @@ from pylsl import StreamInfo
 
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(HERE, "..", "bridges"))
 
 from multimodal_bids_recorder import MultimodalBIDSRecorder  # noqa: E402
 from refit_wearable_clocks import refit_dataset  # noqa: E402
+from utils.bids_wearables import find_wearable_file, find_wearable_files, read_wearable  # noqa: E402
 from wearable_protocol import (DEVICE_TIME_CHANNEL, KNOWN_KINDS, SYNC_CHANNELS,  # noqa: E402
                                make_stream_info)
 
@@ -81,24 +83,54 @@ def session_dir(root, *parts):
     return os.path.join(root, "sub-01", "ses-01", *parts)
 
 
-def test_motion_files_keep_analysis_layout_and_gain_sidecars(session):
+def test_motion_is_strict_bids_and_reads_back_for_analysis(session):
     root, _ = session
     base = session_dir(root, "motion", "sub-01_ses-01_task-walk_tracksys-IMULwrist")
-    df = pd.read_csv(base + "_motion.tsv", sep="\t")
-    # Analysis scripts read timestamp_sec then iloc[:, 1:]: device time must not leak in
+    with open(base + "_motion.tsv") as f:
+        assert not f.readline().startswith("timestamp_sec")  # BIDS: no header row
+    df = read_wearable(base + "_motion.tsv")
+    # Analysis scripts use timestamp_sec then iloc[:, 1:]: device time must not leak in
     assert list(df.columns) == ["timestamp_sec", "Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"]
+    channels = pd.read_csv(base + "_channels.tsv", sep="\t", keep_default_na=False)
+    assert list(channels["type"]) == ["LATENCY"] + ["ACCEL"] * 3 + ["GYRO"] * 3
+    assert list(channels["component"]) == ["n/a"] + ["x", "y", "z"] * 2
+    assert list(channels["tracked_point"]) == ["n/a"] + ["L_wrist"] * 6
     meta = json.load(open(base + "_motion.json"))
+    assert (meta["MotionChannelCount"], meta["ACCELChannelCount"], meta["GYROChannelCount"]) == (7, 3, 3)
     assert (meta["DeviceID"], meta["TrackedPointLocation"], meta["Units"]["Gyro_Z"]) == ("dev-L_wrist", "L_wrist", "rad/s")
-    channels = pd.read_csv(base + "_channels.tsv", sep="\t")
-    assert list(channels["type"]) == ["ACCEL"] * 3 + ["GYRO"] * 3
-    assert list(channels["component"]) == ["x", "y", "z"] * 2
-    assert set(channels["tracked_point"]) == {"L_wrist"}
+    assert os.path.exists(os.path.join(root, "dataset_description.json"))
 
 
-def test_legacy_stream_exports_with_generic_columns(session):
+def test_physio_without_eeg_goes_to_beh_gzipped(session):
     root, _ = session
-    df = pd.read_csv(session_dir(root, "ppg", "sub-01_ses-01_task-walk_ppg.tsv"), sep="\t")
+    base = session_dir(root, "beh", "sub-01_ses-01_task-walk_recording-SmartwatchPPG_physio")
+    df = read_wearable(base + ".tsv.gz")
     assert list(df.columns) == ["timestamp_sec", "ch_1", "ch_2"]
+    meta = json.load(open(base + ".json"))
+    assert meta["Columns"] == ["timestamp_sec", "ch_1", "ch_2"]
+    assert meta["StartTime"] == 0.0 and meta["SamplingFrequency"] == 1.0
+
+
+def test_finder_picks_strict_files_and_labels(session):
+    root, _ = session
+    ses = session_dir(root)
+    assert [os.path.basename(p) for p in find_wearable_files(ses, "01", "01", "walk", "motion")] == [
+        "sub-01_ses-01_task-walk_tracksys-IMULwrist_motion.tsv", "sub-01_ses-01_task-walk_tracksys-IMURwrist_motion.tsv"]
+    assert find_wearable_file(ses, "01", "01", "walk", "motion", label="IMURwrist").endswith("IMURwrist_motion.tsv")
+    assert find_wearable_file(ses, "01", "01", "walk", "physio").endswith("SmartwatchPPG_physio.tsv.gz")
+
+
+def test_older_headered_layouts_still_load(tmp_path):
+    ses = tmp_path / "sub-01" / "ses-02"
+    for folder, name, cols in [("motion", "motion", "timestamp_sec\tch_1\tch_2"),
+                               ("physio", "physio", "timestamp_sec\tch_1"),
+                               ("ppg", "ppg", "timestamp_sec\tch_1")]:
+        (ses / folder).mkdir(parents=True)
+        (ses / folder / f"sub-01_ses-02_task-video_{name}.tsv").write_text(cols + "\n" + "\t".join(["0.5"] * len(cols.split())) + "\n")
+    motion = find_wearable_file(str(ses), "01", "02", "video", "motion")
+    assert list(read_wearable(motion).columns) == ["timestamp_sec", "ch_1", "ch_2"]
+    physio = find_wearable_files(str(ses), "01", "02", "video", "physio")
+    assert [os.path.basename(os.path.dirname(p)) for p in physio] == ["physio", "ppg"]
 
 
 def test_clock_sync_lands_on_recording_axis(session):
@@ -114,7 +146,7 @@ def test_refit_beats_live_timestamps(session):
     reports = refit_dataset(str(root), apply=True)
     assert [r["status"] for r in reports] == ["applied", "applied"]
     assert reports[0]["device_drift_ppm"] == pytest.approx(40, abs=5)  # device made 40 ppm fast
-    df = pd.read_csv(session_dir(root, "motion", "sub-01_ses-01_task-walk_tracksys-IMULwrist_motion.tsv"), sep="\t")
+    df = read_wearable(session_dir(root, "motion", "sub-01_ses-01_task-walk_tracksys-IMULwrist_motion.tsv"))
     err = np.abs(df["timestamp_sec"].to_numpy() - truth["L_wrist"])
     assert err.max() < 2e-3          # including the first seconds, where live was 8 ms off
     assert err[:250].max() < 2e-3
@@ -122,5 +154,15 @@ def test_refit_beats_live_timestamps(session):
     assert sidecar["ClockRefit"]["Bursts"] == 60
     # Applying twice starts from the live timestamps again, so nothing moves
     refit_dataset(str(root), apply=True)
-    again = pd.read_csv(session_dir(root, "motion", "sub-01_ses-01_task-walk_tracksys-IMULwrist_motion.tsv"), sep="\t")
+    again = read_wearable(session_dir(root, "motion", "sub-01_ses-01_task-walk_tracksys-IMULwrist_motion.tsv"))
     assert np.allclose(again["timestamp_sec"], df["timestamp_sec"])
+
+
+def test_refit_of_short_session_reports_no_drift():
+    from refit_wearable_clocks import fit_offsets
+    x = np.array([0.0, 10.0])
+    y = np.array([1.000, 1.002])          # 2 ms of noise, 10 s apart
+    delay = np.array([0.004, 0.012])
+    offsets, drift = fit_offsets(x, y, delay, np.array([0.0, 5.0, 20.0]))
+    assert drift is None
+    assert np.allclose(offsets, 1.000)    # fastest exchange, no extrapolated slope

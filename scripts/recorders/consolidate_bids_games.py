@@ -80,7 +80,7 @@ def copy_and_fix_vmrk(src_vmrk, dst_vmrk, new_prefix):
 def import_session(src_ses_dir, dst_root, target_sub, target_ses, target_task=None):
     """
     Imports a session directory into dst_root/sub-<target_sub>/ses-<target_ses>/.
-    Handles eeg, motion, physio, ppg modalities and updates BrainVision references.
+    Handles eeg, motion, physio, ppg and beh folders and updates BrainVision references.
     """
     dst_sub_dir = os.path.join(dst_root, f"sub-{target_sub}")
     dst_ses_dir = os.path.join(dst_sub_dir, f"ses-{target_ses}")
@@ -92,8 +92,9 @@ def import_session(src_ses_dir, dst_root, target_sub, target_ses, target_task=No
         dst_scans = os.path.join(dst_ses_dir, f"sub-{target_sub}_ses-{target_ses}_scans.tsv")
         copy_or_link_file(src_scans[0], dst_scans)
 
-    # Process all subdirectories (eeg, motion, physio, ppg)
-    for mod in ['eeg', 'motion', 'physio', 'ppg']:
+    # Process all subdirectories (eeg, motion, physio, ppg, and beh for wearable physio
+    # recorded without EEG)
+    for mod in ['eeg', 'motion', 'physio', 'ppg', 'beh']:
         src_mod_dir = os.path.join(src_ses_dir, mod)
         if not os.path.exists(src_mod_dir):
             continue

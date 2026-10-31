@@ -59,7 +59,7 @@ delay  = (t4 − t1) − (t3 − t2)           network round trip
 
 - **Exact if both legs take equally long**, and wrong by at most `delay / 2` otherwise. That is the `±` the status table shows for each device. It is a worst case; in simulation with 1–15 ms of jitter per leg, the real error stayed under 1.5 ms.
 - **Bursts, best exchange only:** 40 pings when a device appears, then 5 every 10 s. Wi-Fi delay varies a lot, so each burst keeps only its fastest exchange.
-- **Drift:** device and PC crystals disagree by tens of ppm, which is 36–180 ms per hour. A straight line (offset + drift) is fitted through the last 30 bursts (~5 min), so one handshake at the start would not be enough.
+- **Drift:** device and PC crystals disagree by tens of ppm, which is 36–180 ms per hour. A straight line (offset + drift) is fitted through the last 30 bursts (~5 min), so one handshake at the start would not be enough. Drift is only fitted once the bursts span 60 s: over 10 s, 1–2 ms of noise per burst would read as ±200 ppm. Until then, the fastest exchange so far gives the offset.
 - **Pings ride the device's own traffic:** the bridge sends a ping right after a packet from that device arrives, while its radio is still awake. Otherwise Wi-Fi power save would hold the ping back until the next beacon.
 - **Raw exchanges are recorded:** each device gets a `ClockSync_<location>` stream (`double64`: t1, t2, t3, t4), so the fit can be redone offline over the whole session, using exchanges both before and after each sample.
 - **Fallback:** until the first burst completes, and for devices that never answer (they are left alone after 3 silent bursts), the bridge uses the smallest `arrival − device_time` of the last 10 s. That includes the one-way network latency, typically a few milliseconds.
@@ -165,17 +165,28 @@ The bridge still accepts the old single-watch CSV packet (`accX,...,hr,touchX,to
 
 ## Recording
 
-`multimodal_bids_recorder.py` exports, per session:
+`multimodal_bids_recorder.py` writes wearables as BIDS 1.9, per session:
 
 | Path | Content |
 |---|---|
-| `motion/*_motion.tsv`, `ppg/*_ppg.tsv`, `touch/*_touch.tsv` | `timestamp_sec`, then the data channels by label (`Accel_X`, …). Same layout the analysis scripts read; `DeviceTime` is never in here. |
-| `*_motion.json`, `*_ppg.json`, … | Sampling rate, column units, stream name, LSL `source_id`, `DeviceID`, `TrackedPointLocation`, clock-sync method |
-| `motion/*_channels.tsv` | BIDS motion channels: `name`, `component` (x/y/z), `type` (ACCEL/GYRO), `tracked_point`, `units` |
-| `sourcedata/…/<datatype>/*_devicetime.tsv` | Live `timestamp_sec` and the raw `device_time_s` of every sample |
+| `motion/*_tracksys-<stream>_motion.tsv` | IMU, no header row. Columns as listed in `channels.tsv`: `timestamp_sec` first, then `Accel_X` … `Gyro_Z`. |
+| `motion/*_tracksys-<stream>_channels.tsv` | `name`, `component` (x/y/z), `type` (`LATENCY` for `timestamp_sec`, `ACCEL`, `GYRO`), `tracked_point` (body location), `units` |
+| `motion/*_tracksys-<stream>_motion.json` | `SamplingFrequency`, channel counts, `TrackingSystemName`, plus `DeviceID`, `TrackedPointLocation`, LSL `source_id`, clock-sync method |
+| `eeg/` or `beh/` `*_recording-<stream>_physio.tsv.gz` | Heart rate and touch, gzipped, no header. Stored next to the EEG run, or in `beh/` when there is none. |
+| `*_recording-<stream>_physio.json` | `Columns`, `SamplingFrequency` (measured, for irregular heart rate), `StartTime` relative to the first EEG sample, plus the same device fields |
+| `sourcedata/…/*_devicetime.tsv` | Live `timestamp_sec` and the raw `device_time_s` of every sample |
 | `sourcedata/…/clocksync/*_clocksync.tsv` | Ping/echo exchanges; `t1`/`t4` on the `timestamp_sec` axis, `t2`/`t3` device clock |
 
-With one stream of a kind, the filename is unchanged (`..._motion.tsv`). With several, each file gets a BIDS label from its stream name, e.g. `..._tracksys-IMULwrist_motion.tsv` and `..._recording-HRLwrist_ppg.tsv`.
+`<stream>` is the LSL stream name without punctuation, e.g. `tracksys-IMULwrist`, `recording-HRLwrist`. A `dataset_description.json` is written if the session has no EEG to create one.
+
+Read wearable files with `utils.bids_wearables`. It returns the same DataFrame (`timestamp_sec`, then data columns) for these files and for older sessions with headered `motion/`, `physio/` or `ppg/` TSVs:
+
+```python
+from utils.bids_wearables import find_wearable_file, read_wearable
+
+path = find_wearable_file(ses_dir, sub, ses, task, "motion", label="IMULwrist")  # label optional
+df = read_wearable(path)
+```
 
 ### Offline clock refit
 
@@ -186,6 +197,6 @@ uv run python recorders/refit_wearable_clocks.py bids_dataset_multimodal        
 uv run python recorders/refit_wearable_clocks.py bids_dataset_multimodal --apply  # rewrite timestamp_sec
 ```
 
-The report gives, per stream, the number of bursts, the device drift (positive = device clock runs fast), the median error bound and how far the refit moves the timestamps. `--apply` rewrites `timestamp_sec` and adds a `ClockRefit` block to the JSON. The live timestamps stay in the devicetime file, so applying again gives the same result. In a simulated 10-minute session (40 ppm drift, 1–15 ms of jitter per leg, live timestamps 8 ms off before the first burst), every refit sample lands within 2 ms of the true time.
+The report gives, per stream, the number of bursts, the device drift (positive = device clock runs fast; empty if the bursts span under 60 s), the median error bound and how far the refit moves the timestamps. `--apply` rewrites `timestamp_sec` and adds a `ClockRefit` block to the JSON. The live timestamps stay in the devicetime file, so applying again gives the same result. In a simulated 10-minute session (40 ppm drift, 1–15 ms of jitter per leg, live timestamps 8 ms off before the first burst), every refit sample lands within 2 ms of the true time.
 
 The recorder only receives exchanges from after it connects, so start it before the wearables (or at least before the session's first stomp/clap). A session needs at least one burst, which is every 10 s; longer sessions give the drift fit more to work with.
