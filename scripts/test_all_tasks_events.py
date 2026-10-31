@@ -17,6 +17,7 @@ from recorders.bids_recorder import BIDSRecorder
 from tasks.left_right_task import LeftRightTaskApp
 from tasks.music_memory_task import MusicMemoryTaskApp
 from tasks.video_dataset_task import VideoDatasetTaskApp
+from tasks.spatial_3d_task import Spatial3DTaskApp
 
 def start_mock_streamer():
     print("[*] Launching Mock LSL Streamer...")
@@ -113,6 +114,7 @@ def main():
         run_task_test(LeftRightTaskApp, "leftright", mock_proc)
         run_task_test(MusicMemoryTaskApp, "musicmemory", mock_proc)
         run_task_test(VideoDatasetTaskApp, "video", mock_proc)
+        run_task_test(Spatial3DTaskApp, "spatial3d", mock_proc)
 
         print("\n" + "="*60)
         print("[SUCCESS] All tasks successfully generated and recorded LSL event markers!")

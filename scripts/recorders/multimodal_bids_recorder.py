@@ -259,17 +259,21 @@ class MultimodalBIDSRecorder:
             # Parse XML channel labels
             ch_names = []
             ch_types = []
+            ch_units = []
             ch_child = info_xml.desc().child("channels").child("channel")
             for i in range(item['n_ch']):
                 if not ch_child.empty():
                     c_name = ch_child.child_value("label")
                     c_type = ch_child.child_value("type").lower()
+                    c_unit = ch_child.child_value("unit").lower()
                     ch_names.append(c_name if c_name else f"EEG{i+1:03d}")
                     ch_types.append('eeg' if c_type in ['eeg', ''] else 'misc')
+                    ch_units.append(c_unit)
                     ch_child = ch_child.next_sibling("channel")
                 else:
                     ch_names.append(f"EEG{i+1:03d}")
                     ch_types.append('eeg')
+                    ch_units.append('microvolts')
 
             # If the driver gave generic/numeric channel labels, map to the standard GPYPE_32 10-20 names
             GPYPE_32 = [
@@ -287,11 +291,38 @@ class MultimodalBIDSRecorder:
                 if c_name.lower() in ('battery', 'counter', 'sync', 'status'):
                     ch_types[idx] = 'misc'
 
-            # Convert uV to V if needed
-            if np.max(np.abs(eeg_raw_data)) > 1.0:
+            # Convert to Volts for MNE
+            has_uv = any('microvolt' in u or 'uv' in u for u in ch_units if u)
+            has_v = any(u == 'v' or u == 'volt' or u == 'volts' for u in ch_units if u)
+            if has_uv:
+                print("[*] Scaling LSL microvolts (uV) to Volts (V).")
                 eeg_raw_data = eeg_raw_data * 1e-6
+            elif has_v:
+                print("[*] LSL stream natively in Volts (V). Preserving scale.")
+            else:
+                med_std = np.median(np.std(eeg_raw_data, axis=1))
+                if med_std > 0.5:
+                    print(f"[*] Heuristic unit detection (median std = {med_std:.2f} > 0.5): scaling uV to V.")
+                    eeg_raw_data = eeg_raw_data * 1e-6
+                else:
+                    print(f"[*] Heuristic unit detection (median std = {med_std:.6f} <= 0.5): keeping V scale.")
+
+            # Channel quality check for flatline & railing pins
+            ch_stds_uv = np.std(eeg_raw_data, axis=1) * 1e6
+            ch_ptp_uv = np.ptp(eeg_raw_data, axis=1) * 1e6
+            bad_channels = []
+            for idx, (c_name, c_std, c_ptp) in enumerate(zip(ch_names, ch_stds_uv, ch_ptp_uv)):
+                if ch_types[idx] == 'eeg':
+                    if c_std < 0.2:
+                        bad_channels.append(c_name)
+                    elif c_ptp > 4000.0 or c_std > 1000.0:
+                        bad_channels.append(c_name)
 
             mne_info = mne.create_info(ch_names=ch_names, sfreq=srate, ch_types=ch_types)
+            mne_info['bads'] = bad_channels
+            if bad_channels:
+                print(f"[!] Quality Audit: flagged {len(bad_channels)} channels as BAD: {bad_channels}")
+
             raw = mne.io.RawArray(eeg_raw_data, mne_info)
             try:
                 raw.set_montage(mne.channels.make_standard_montage('standard_1020'), on_missing='ignore')
