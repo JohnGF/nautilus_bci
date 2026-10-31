@@ -49,9 +49,12 @@ class MiniEEGVisualizerWidget(QWidget):
         self.eeg_data = np.zeros((self.buf_samples, self.num_channels))
         self.sim_sample_count = 0
         
-        # Filter design (2-45 Hz bandpass)
+        # Filter design:
+        # 1. 50 Hz Notch filter (removes powerline interference)
         nyq = 0.5 * self.fs
-        self.b_bp, self.a_bp = signal.butter(2, [2.0 / nyq, 45.0 / nyq], btype='band')
+        self.b_notch, self.a_notch = signal.iirnotch(50.0, 30.0, self.fs)
+        # 2. 1-35 Hz Bandpass filter (removes DC baseline drift and high-frequency EMG)
+        self.b_bp, self.a_bp = signal.butter(4, [1.0 / nyq, 35.0 / nyq], btype='band')
         
         self.init_ui()
         
@@ -121,11 +124,16 @@ class MiniEEGVisualizerWidget(QWidget):
         self.bar_delta.setStyleSheet("QProgressBar { border: none; background: #191E2A; border-radius: 4px; } QProgressBar::chunk { background: #FFEAA7; }")
         right_panel.addWidget(self.bar_delta)
         
-        # Status Label
+        # Status Label & Specific Sensor Retouch Hints
         self.lbl_signal_quality = QLabel("Initialising Signal Engine...")
         self.lbl_signal_quality.setFont(QFont("Arial", 9, QFont.Bold))
         self.lbl_signal_quality.setStyleSheet("color: #A0A5B5; margin-top: 5px;")
         right_panel.addWidget(self.lbl_signal_quality)
+
+        self.lbl_retouch_hints = QLabel("")
+        self.lbl_retouch_hints.setFont(QFont("Arial", 8))
+        self.lbl_retouch_hints.setWordWrap(True)
+        right_panel.addWidget(self.lbl_retouch_hints)
         
         right_panel.addStretch()
         layout.addLayout(right_panel, stretch=1)
@@ -136,7 +144,8 @@ class MiniEEGVisualizerWidget(QWidget):
             
         if self.inlet is None:
             try:
-                streams = resolve_streams(wait_time=0.2)
+                # Use 0.8s timeout to reliably discover multicast streams across LAN
+                streams = resolve_streams(wait_time=0.8)
                 eeg_streams = [s for s in streams if s.type().upper() == 'EEG' or 'NAUTILUS' in s.name().upper()]
                 if eeg_streams:
                     self.inlet = StreamInlet(eeg_streams[0], max_buflen=360)
@@ -146,6 +155,9 @@ class MiniEEGVisualizerWidget(QWidget):
                     if new_ch > 0 and new_ch != self.num_channels:
                         self.num_channels = new_ch
                         self.eeg_data = np.zeros((self.buf_samples, self.num_channels))
+                        if self.num_channels >= 32:
+                            # g.Nautilus GPYPE_32 standard layout: Cz=15, C3=14, C4=16, Oz=31
+                            self.ch_indices = [15, 14, 16, 31]
             except Exception:
                 self.inlet = None
 
@@ -159,8 +171,10 @@ class MiniEEGVisualizerWidget(QWidget):
                 if samples and len(samples) > 0:
                     new_data = np.array(samples, dtype=np.float64)
 
-                    # Auto-scale Volts to Microvolts if data is in Volts (e.g. max < 0.01 V)
-                    if np.max(np.abs(new_data)) < 0.01:
+                    # Check nominal units: if values are small (< 0.05), they are in Volts -> convert to µV
+                    # Use median absolute value to avoid single-channel rail skewing unit detection
+                    med_abs = np.median(np.abs(new_data))
+                    if med_abs < 0.01:
                         new_data *= 1e6
 
                     n_new = len(new_data)
@@ -198,15 +212,20 @@ class MiniEEGVisualizerWidget(QWidget):
             self.eeg_data[-n_new:, :] = sim_chunk
 
         # 3. Filter and Plot Waveforms
-        filt_data = self.eeg_data - np.mean(self.eeg_data, axis=0)
+        # Separate scalp EEG from auxiliary/battery channels (typically up to 32 EEG channels)
+        n_eeg = min(32, self.num_channels)
+        raw_eeg = self.eeg_data[:, :n_eeg]
+        detrended = raw_eeg - np.mean(raw_eeg, axis=0)
+
         try:
+            filt_data = signal.filtfilt(self.b_notch, self.a_notch, detrended, axis=0)
             filt_data = signal.filtfilt(self.b_bp, self.a_bp, filt_data, axis=0)
         except Exception:
-            pass
+            filt_data = detrended
 
-        # Dynamic gain scaling so small microvolt waves are always clearly visible
-        current_std = np.std(filt_data)
-        spacing = max(20.0, current_std * 3.5)
+        # Dynamic gain scaling so small microvolt waves are clearly visible
+        current_std = np.median(np.std(filt_data, axis=0)) if filt_data.shape[1] > 0 else 20.0
+        spacing = max(25.0, current_std * 3.5)
         offsets = [0, spacing, spacing * 2, spacing * 3]
 
         for i, ch_idx in enumerate(self.ch_indices):
@@ -216,14 +235,14 @@ class MiniEEGVisualizerWidget(QWidget):
 
         self.plot.setYRange(-spacing * 0.8, spacing * 3.8)
 
-        # 4. Calculate Live Band Powers (FFT)
+        # 4. Calculate Live Band Powers (FFT) & Channel Health
         if len(filt_data) >= 64:
             fft_vals = np.abs(np.fft.rfft(filt_data, axis=0))
             freqs = np.fft.rfftfreq(len(filt_data), 1.0 / self.fs)
 
             alpha_idx = (freqs >= 8) & (freqs <= 12)
             beta_idx = (freqs >= 12) & (freqs <= 30)
-            delta_idx = (freqs >= 0.5) & (freqs <= 4)
+            delta_idx = (freqs >= 1) & (freqs <= 4)
 
             p_alpha = np.mean(fft_vals[alpha_idx, :]) if np.any(alpha_idx) else 0.0
             p_beta = np.mean(fft_vals[beta_idx, :]) if np.any(beta_idx) else 0.0
@@ -234,13 +253,72 @@ class MiniEEGVisualizerWidget(QWidget):
             self.bar_beta.setValue(int(min(100, (p_beta / total_p) * 100)))
             self.bar_delta.setValue(int(min(100, (p_delta / total_p) * 100)))
 
-            rms = np.sqrt(np.mean(filt_data**2))
             if pulled:
-                self.lbl_signal_quality.setText(f"LIVE LSL STREAM | RMS: {rms:.1f}µV")
-                self.lbl_signal_quality.setStyleSheet("color: #00E676;")
+                # Hardware ADC Rail Saturated (>100 mV = 100,000 uV ADC limits)
+                raw_max = np.max(np.abs(raw_eeg), axis=0)
+                is_railed = raw_max > 100000.0
+
+                # Flatline / Disconnected in band (< 0.5 uV std or < 1.0 uV ptp in 1-35 Hz)
+                filt_stds = np.std(filt_data, axis=0)
+                filt_ptps = np.ptp(filt_data, axis=0)
+                is_flat = (filt_stds < 0.5) | (filt_ptps < 1.0)
+
+                # High noise / loose contact (> 80 uV std or > 300 uV ptp in 1-35 Hz)
+                is_noisy = (filt_stds > 80.0) | (filt_ptps > 300.0)
+
+                # Clean channels
+                is_clean = ~(is_railed | is_flat | is_noisy)
+                n_clean = int(np.sum(is_clean))
+                n_railed = int(np.sum(is_railed))
+                n_flat = int(np.sum(is_flat))
+                n_noisy = int(np.sum(is_noisy & ~is_railed))
+
+                # Robust median RMS across clean channels (or all EEG channels if none clean)
+                clean_stds = filt_stds[is_clean] if n_clean > 0 else filt_stds
+                rms = float(np.median(clean_stds))
+
+                warn = []
+                if n_railed > 0:
+                    warn.append(f"{n_railed} railed")
+                if n_noisy > 0:
+                    warn.append(f"{n_noisy} noisy")
+                if n_flat > 0:
+                    warn.append(f"{n_flat} flat")
+
+                GPYPE_32 = [
+                    "Fp1", "Fp2", "AF3", "AF4", "F7", "F3", "Fz", "F4", "F8",
+                    "FC5", "FC1", "FC2", "FC6", "T7", "C3", "Cz", "C4", "T8",
+                    "CP5", "CP1", "CP2", "CP6", "P7", "P3", "Pz", "P4", "P8",
+                    "PO7", "PO3", "PO4", "PO8", "Oz",
+                ]
+                noisy_names = [GPYPE_32[i] for i in np.where(is_noisy & ~is_railed)[0] if i < len(GPYPE_32)]
+                flat_names = [GPYPE_32[i] for i in np.where(is_flat)[0] if i < len(GPYPE_32)]
+                railed_names = [GPYPE_32[i] for i in np.where(is_railed)[0] if i < len(GPYPE_32)]
+
+                if warn:
+                    self.lbl_signal_quality.setText(f"LIVE ({n_clean}/{n_eeg} OK): {', '.join(warn)} | RMS: {rms:.1f}µV")
+                    self.lbl_signal_quality.setStyleSheet("color: #FFB74D; font-weight: bold;")
+                    hints = []
+                    if noisy_names:
+                        hints.append(f"Retouch: {', '.join(noisy_names)}")
+                    if flat_names:
+                        hints.append(f"Flat: {', '.join(flat_names)}")
+                    if railed_names:
+                        hints.append(f"Railed: {', '.join(railed_names)}")
+                    self.lbl_retouch_hints.setText(" | ".join(hints))
+                    self.lbl_retouch_hints.setStyleSheet("color: #FFB74D; font-size: 8pt;")
+                else:
+                    self.lbl_signal_quality.setText(f"LIVE LSL ({n_clean}/{n_eeg} Clean) | RMS: {rms:.1f}µV")
+                    self.lbl_signal_quality.setStyleSheet("color: #00E676; font-weight: bold;")
+                    self.lbl_retouch_hints.setText("All electrodes well-seated (Optimal)")
+                    self.lbl_retouch_hints.setStyleSheet("color: #00E676; font-size: 8pt;")
             else:
-                self.lbl_signal_quality.setText(f"PREVIEW (Click Start Streamer) | RMS: {rms:.1f}µV")
-                self.lbl_signal_quality.setStyleSheet("color: #FFEAA7;")
+                sim_stds = np.std(filt_data, axis=0)
+                rms = float(np.median(sim_stds))
+                self.lbl_signal_quality.setText(f"SIMULATION PREVIEW | RMS: {rms:.1f}µV")
+                self.lbl_signal_quality.setStyleSheet("color: #FFEAA7; font-style: italic;")
+                self.lbl_retouch_hints.setText("Waiting for g.Nautilus EEG stream...")
+                self.lbl_retouch_hints.setStyleSheet("color: #A0A5B5; font-size: 8pt;")
 
 
 class BCISuiteControlCenter(QMainWindow):
@@ -256,6 +334,8 @@ class BCISuiteControlCenter(QMainWindow):
         self.music_memory_window = None
         self.calibrator_window = None
         self.video_task_window = None
+        self.spatial_3d_task_window = None
+        self.headmap_window = None
 
         self.init_ui()
 
@@ -300,14 +380,17 @@ class BCISuiteControlCenter(QMainWindow):
         stream_layout = QVBoxLayout(stream_box)
 
         stream_opts = QHBoxLayout()
-        self.radio_hw = QRadioButton("Physical g.Nautilus Device (gds_to_lsl.py)")
-        self.radio_mock = QRadioButton("Simulated Mock Streamer (mock_lsl_streamer.py)")
-        self.radio_mock.setChecked(True)
+        self.radio_gpype = QRadioButton("g.Pype Pipeline (gpype_to_lsl.py)")
+        self.radio_gpype.setChecked(True)
+        self.radio_hw = QRadioButton("Physical g.Nautilus (gds_to_lsl.py)")
+        self.radio_mock = QRadioButton("Simulated Mock (mock_lsl_streamer.py)")
         
         self.stream_btn_group = QButtonGroup()
+        self.stream_btn_group.addButton(self.radio_gpype)
         self.stream_btn_group.addButton(self.radio_hw)
         self.stream_btn_group.addButton(self.radio_mock)
 
+        stream_opts.addWidget(self.radio_gpype)
         stream_opts.addWidget(self.radio_hw)
         stream_opts.addWidget(self.radio_mock)
         stream_layout.addLayout(stream_opts)
@@ -345,6 +428,15 @@ class BCISuiteControlCenter(QMainWindow):
         self.mini_visualizer = MiniEEGVisualizerWidget()
         self.mini_visualizer.setFixedHeight(190)
         mini_vis_layout.addWidget(self.mini_visualizer)
+
+        vis_toolbar = QHBoxLayout()
+        vis_toolbar.addStretch()
+        self.btn_open_headmap = QPushButton("🗺️ Open 2D Scalp Impedance Headmap")
+        self.btn_open_headmap.setFont(QFont("Arial", 9, QFont.Bold))
+        self.btn_open_headmap.setStyleSheet("background-color: #2D3748; color: #63B3ED; border: 1px solid #4A5568; padding: 4px 12px; border-radius: 4px;")
+        self.btn_open_headmap.clicked.connect(self.launch_headmap_gui)
+        vis_toolbar.addWidget(self.btn_open_headmap)
+        mini_vis_layout.addLayout(vis_toolbar)
         
         main_layout.addWidget(mini_vis_box)
 
@@ -469,6 +561,21 @@ class BCISuiteControlCenter(QMainWindow):
         layout_video.addWidget(self.btn_launch_video_task)
         task_layout.addWidget(card_video)
 
+        # Card E: 3D Spatial Motor Imagery & 6-DoF Navigation
+        card_spatial = QGroupBox("🚀 3D Spatial 6-DoF Paradigm")
+        card_spatial.setStyleSheet("QGroupBox { font-size: 11px; font-weight: bold; color: #A0A5B5; border: 1px solid #2C354A; border-radius: 6px; padding: 8px; }")
+        layout_spatial = QVBoxLayout(card_spatial)
+        lbl_spatial = QLabel("6-DoF Translation & Rotation\n(Surge, Sway, Heave, Bank)")
+        lbl_spatial.setStyleSheet("color: #58A6FF; font-size: 10px;")
+        layout_spatial.addWidget(lbl_spatial)
+
+        self.btn_launch_spatial_3d = QPushButton("🚀 Launch 3D Spatial Task")
+        self.btn_launch_spatial_3d.setFont(QFont("Arial", 10, QFont.Bold))
+        self.btn_launch_spatial_3d.setStyleSheet("background-color: #1F6FEB; color: white; padding: 8px 12px; border-radius: 5px;")
+        self.btn_launch_spatial_3d.clicked.connect(self.launch_spatial_3d_task_gui)
+        layout_spatial.addWidget(self.btn_launch_spatial_3d)
+        task_layout.addWidget(card_spatial)
+
         main_layout.addWidget(task_box)
 
         # Console Log Box
@@ -484,7 +591,12 @@ class BCISuiteControlCenter(QMainWindow):
 
     def toggle_streamer(self):
         if self.streamer_process is None:
-            script_name = "gds_to_lsl.py" if self.radio_hw.isChecked() else "mock_lsl_streamer.py"
+            if self.radio_gpype.isChecked():
+                script_name = "gpype_to_lsl.py"
+            elif self.radio_hw.isChecked():
+                script_name = "gds_to_lsl.py"
+            else:
+                script_name = "mock_lsl_streamer.py"
             base_dir = os.path.dirname(__file__)
             script_path = os.path.join(base_dir, "bridges", script_name)
             if not os.path.exists(script_path):
@@ -492,7 +604,7 @@ class BCISuiteControlCenter(QMainWindow):
             
             self.log(f"Starting EEG Streamer ({script_name})...")
             args = [sys.executable, script_path]
-            if self.radio_hw.isChecked():
+            if self.radio_hw.isChecked() or self.radio_gpype.isChecked():
                 args.append("--non-interactive")
 
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
@@ -640,6 +752,32 @@ class BCISuiteControlCenter(QMainWindow):
             self.video_task_window.show()
         else:
             self.video_task_window.activateWindow()
+
+    def launch_spatial_3d_task_gui(self):
+        if self.spatial_3d_task_window is None or not self.spatial_3d_task_window.isVisible():
+            self.log("Launching 3D Spatial Motor Imagery & 6-DoF Neurofeedback Window...")
+            from tasks import spatial_3d_task
+            import importlib
+            importlib.reload(spatial_3d_task)
+            self.spatial_3d_task_window = spatial_3d_task.Spatial3DTaskApp()
+            self.spatial_3d_task_window.sub_input.setText(f"sub-{self.txt_sub.text().strip()}")
+            self.spatial_3d_task_window.ses_input.setText(f"ses-{self.txt_ses.text().strip()}")
+            self.spatial_3d_task_window.show()
+        else:
+            self.spatial_3d_task_window.activateWindow()
+
+    def launch_headmap_gui(self):
+        try:
+            if self.headmap_window is None or not self.headmap_window.isVisible():
+                self.log("Opening 2D Scalp Impedance Headmap...")
+                from visualizers.eeg_headmap_quality_visualizer import HeadmapQualityVisualizerWindow
+                self.headmap_window = HeadmapQualityVisualizerWindow()
+                self.headmap_window.show()
+            else:
+                self.headmap_window.activateWindow()
+        except Exception as e:
+            self.log(f"Error launching headmap: {e}")
+            QMessageBox.critical(self, "Headmap Error", f"Failed to launch 2D Headmap:\n{e}")
 
     def update_status(self):
         try:

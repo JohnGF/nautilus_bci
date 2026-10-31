@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Nautilus BCI Studio - Unified Web Interface</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Three.js (r128) for 3D Neurofeedback Scene -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <!-- ── Top Header Navigation ── -->
+    <header class="app-header">
+        <div class="brand-section">
+            <span class="brand-icon">🧠</span>
+            <div>
+                <span class="brand-title">Nautilus BCI Studio</span>
+                <span class="brand-badge">g.SAHARA 32CH</span>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="nav-tab-btn mirror-tab active" data-tab="mirror">🪞 Mirror Mode</button>
+            <button class="nav-tab-btn" data-tab="headmap">📊 Scalp Headmap</button>
+            <button class="nav-tab-btn" data-tab="oscilloscope">📈 Oscilloscope</button>
+            <button class="nav-tab-btn" data-tab="task3d">🚀 3D Task</button>
+            <button class="nav-tab-btn" data-tab="bids">📁 BIDS Recording</button>
+            <button class="nav-tab-btn" data-tab="hardware">⚙️ Hardware</button>
+        </nav>
+
+        <!-- Status & Battery Indicators -->
+        <div class="header-status">
+            <div id="connectionStatusPill" class="status-pill">
+                <span class="status-dot"></span>
+                <span id="connectionStatusText">CONNECTING...</span>
+            </div>
+            <div class="battery-indicator">
+                <span>🔋</span>
+                <span id="batteryLevelText">80%</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ── Main Application Content Panes ── -->
+    <main class="main-content">
+
+        <!-- ── TAB 1: MIRROR MODE (Mobile & Vanity Mirror Optimized) ── -->
+        <section id="tabPane-mirror" class="tab-pane active">
+            <div class="mirror-view-container">
+                <!-- Live Retouch Guidance Alert Banner -->
+                <div id="mirrorRetouchBanner" class="retouch-alert-banner">
+                    <span id="mirrorAlertTitle" class="alert-title">🔍 SCANNING ELECTRODE CONTACT</span>
+                    <span id="mirrorAlertPins" class="alert-pins-list">Checking 32 pins...</span>
+                    <span id="mirrorAlertHint" class="alert-hint">Place phone/tablet near your mirror to see pins turn green as you adjust them.</span>
+                </div>
+
+                <!-- Large Scalp SVG Headmap -->
+                <div class="headmap-svg-wrap">
+                    <svg id="mirrorHeadmapSvg" class="headmap-svg"></svg>
+                </div>
+
+                <!-- Big Touch Floating Record Button -->
+                <div class="quick-bids-floating-bar">
+                    <button id="floatRecordBtn" class="big-touch-btn btn-record-start">
+                        <span>🔴</span>
+                        <span>Start BIDS Recording</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── TAB 2: WORKSTATION SCALP HEADMAP & CHANNEL TABLE ── -->
+        <section id="tabPane-headmap" class="tab-pane">
+            <div class="desktop-grid">
+                <!-- Left: 2D Scalp Headmap -->
+                <div class="bci-card">
+                    <div class="card-header">
+                        <span class="card-title">🗺️ Topographic Scalp Quality (GPYPE_32)</span>
+                    </div>
+                    <div class="headmap-svg-wrap" style="max-width: 420px; margin: 0 auto;">
+                        <svg id="workstationHeadmapSvg" class="headmap-svg"></svg>
+                    </div>
+                </div>
+
+                <!-- Right: Detailed Channel Quality Table -->
+                <div class="bci-card">
+                    <div class="card-header">
+                        <span class="card-title">📋 32-Channel Impedance & Metrics</span>
+                        <span style="font-size: 11px; color: var(--text-secondary);">Target: &lt; 50 µV</span>
+                    </div>
+                    <div class="channel-table-wrap">
+                        <table class="channel-table">
+                            <thead>
+                                <tr>
+                                    <th>Pin</th>
+                                    <th>Scalp Region</th>
+                                    <th>RMS (1-35Hz)</th>
+                                    <th>Peak-to-Peak</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="channelTableBody">
+                                <!-- Populated dynamically by app.js -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── TAB 3: LIVE OSCILLOSCOPE & BRAIN RHYTHMS ── -->
+        <section id="tabPane-oscilloscope" class="tab-pane">
+            <div class="bci-card">
+                <div class="card-header">
+                    <span class="card-title">📈 Live EEG Signal Scope (Cz, C3, C4, Oz)</span>
+                    <span style="font-size: 12px; color: var(--accent-blue); font-family: var(--font-mono);">250 Hz | 50Hz Notch + 1-35Hz BP</span>
+                </div>
+                <div class="scope-canvas-wrap">
+                    <canvas id="scopeCanvas"></canvas>
+                </div>
+
+                <!-- Brain Rhythm Band Power Bars -->
+                <div class="rhythm-bars-row">
+                    <div class="rhythm-bar-item">
+                        <div class="rhythm-bar-label">
+                            <span style="color: #3FB950;">Alpha (8-12 Hz)</span>
+                            <span id="barValAlpha" style="color: #3FB950;">45%</span>
+                        </div>
+                        <div class="bar-track">
+                            <div id="barFillAlpha" class="bar-fill fill-alpha" style="width: 45%;"></div>
+                        </div>
+                    </div>
+                    <div class="rhythm-bar-item">
+                        <div class="rhythm-bar-label">
+                            <span style="color: #58A6FF;">Beta (12-30 Hz)</span>
+                            <span id="barValBeta" style="color: #58A6FF;">30%</span>
+                        </div>
+                        <div class="bar-track">
+                            <div id="barFillBeta" class="bar-fill fill-beta" style="width: 30%;"></div>
+                        </div>
+                    </div>
+                    <div class="rhythm-bar-item">
+                        <div class="rhythm-bar-label">
+                            <span style="color: #D29922;">Delta (0.5-4 Hz)</span>
+                            <span id="barValDelta" style="color: #D29922;">25%</span>
+                        </div>
+                        <div class="bar-track">
+                            <div id="barFillDelta" class="bar-fill fill-delta" style="width: 25%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── TAB 4: 3D SPATIAL NEUROFEEDBACK TASK ── -->
+        <section id="tabPane-task3d" class="tab-pane">
+            <div class="bci-card" style="padding: 10px;">
+                <div id="threeViewportWrap" class="threejs-viewport-wrap">
+                    <canvas id="taskGlCanvas"></canvas>
+
+                    <!-- Real-Time HUD Overlay -->
+                    <div class="task-hud-overlay">
+                        <div class="hud-panel">
+                            <div style="font-size: 13px; font-weight: bold; color: var(--accent-blue);">⚡ 3D NEUROFEEDBACK</div>
+                            <div id="hudDriveText" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Drive: 50%</div>
+                            <div class="bar-track" style="width: 140px; height: 6px; margin-top: 4px;">
+                                <div id="hudDriveFill" class="bar-fill fill-beta" style="width: 50%;"></div>
+                            </div>
+                        </div>
+                        <div class="hud-panel">
+                            <div style="font-size: 11px; color: var(--text-secondary);">STEERING (C4 - C3)</div>
+                            <div id="hudSteeringText" style="font-size: 13px; font-weight: bold; color: var(--accent-green);">CENTERED</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── TAB 5: BIDS DATASET RECORDING STUDIO ── -->
+        <section id="tabPane-bids" class="tab-pane">
+            <div class="bci-card">
+                <div class="card-header">
+                    <span class="card-title">📁 Multimodal BIDS Recording Engine</span>
+                    <span id="recStatusIndicator" style="font-size: 12px; font-weight: bold; color: var(--text-secondary);">STANDBY</span>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Subject ID</label>
+                        <input id="inputSubId" type="text" class="form-input" value="01">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Session ID</label>
+                        <input id="inputSesId" type="text" class="form-input" value="01">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Experimental Task</label>
+                        <select id="selectTaskName" class="form-select">
+                            <option value="spatial3d">🚀 spatial3d (3D Spatial Motor Imagery)</option>
+                            <option value="leftright">🎮 leftright (Directional Motor Imagery)</option>
+                            <option value="music_memory">🎵 music_memory (Auditory Imagery)</option>
+                            <option value="video_resting">📹 video_resting (Baseline Resting State)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Target Dataset Folder</label>
+                        <input id="inputTargetDir" type="text" class="form-input" value="bids_dataset">
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
+                    <button id="btnToggleBidsRecord" class="big-touch-btn btn-record-start">
+                        <span>🔴</span>
+                        <span>Start BIDS Recording</span>
+                    </button>
+                </div>
+
+                <!-- Recording Telemetry Counters -->
+                <div style="display: flex; gap: 24px; padding: 12px; background: var(--bg-panel); border-radius: 6px; margin-top: 6px;">
+                    <div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">ELAPSED TIME</div>
+                        <div id="recTimeElapsed" style="font-size: 18px; font-weight: bold; font-family: var(--font-mono); color: var(--accent-blue);">00:00</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">DATA SAMPLES</div>
+                        <div id="recSampleCount" style="font-size: 18px; font-weight: bold; font-family: var(--font-mono); color: var(--accent-green);">0 samples</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">LSL SYNCHRONIZATION</div>
+                        <div style="font-size: 18px; font-weight: bold; font-family: var(--font-mono); color: var(--text-primary);">Sub-millisecond</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── TAB 6: HARDWARE & REMOTE BRIDGE ── -->
+        <section id="tabPane-hardware" class="tab-pane">
+            <div class="bci-card">
+                <div class="card-header">
+                    <span class="card-title">⚙️ Hardware & Remote Service Controls</span>
+                    <span style="font-size: 12px; color: var(--text-secondary);">Remote Host: bci (192.168.2.228)</span>
+                </div>
+                <p style="font-size: 13px; color: var(--text-secondary);">
+                    Control the Windows GDS acquisition session and restart streams with one click without opening an SSH terminal.
+                </p>
+
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px;">
+                    <button class="btn-secondary" onclick="showToast('Cycling Windows GDS service...'); fetch('/api/bridge/reset-gds', {method: 'POST'}).catch(()=>{});">
+                        🔄 Emergency GDS Windows Service Reset
+                    </button>
+                    <button class="btn-secondary" onclick="showToast('Re-establishing LSL Stream...'); fetch('/api/bridge/restart', {method: 'POST'}).catch(()=>{});">
+                        ⚡ Restart LSL Streamer Bridge
+                    </button>
+                    <button class="btn-secondary" onclick="state.isSimulated = !state.isSimulated; showToast('Toggled Mock/Live Simulation!');">
+                        🧪 Toggle Mock / Live Mode
+                    </button>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ── Floating Toast Container ── -->
+    <div id="toastContainer"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

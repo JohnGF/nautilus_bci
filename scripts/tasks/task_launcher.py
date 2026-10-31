@@ -49,7 +49,9 @@ def extract_task_metadata(filepath):
 
     # Custom icon mapping
     icon = "🎮"
-    if "video" in filename.lower():
+    if "spatial" in filename.lower() or "3d" in filename.lower():
+        icon = "🚀"
+    elif "video" in filename.lower():
         icon = "📹"
     elif "music" in filename.lower() and "calib" not in filename.lower():
         icon = "🎵"

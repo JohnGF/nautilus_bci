@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚀 Nautilus BCI - 3D Spatial 6-DoF Simulator</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #06090e;
+            color: #f0f6fc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* ── 3D CANVAS (FULLSCREEN CENTERED) ── */
+        #glCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            z-index: 1;
+        }
+
+        /* ── CENTER FIXATION RETICLE ── */
+        #centerReticle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            pointer-events: none;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.45;
+            transition: opacity 0.2s ease;
+        }
+        #centerReticle::before {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 2px;
+            background: #58a6ff;
+            border-radius: 1px;
+        }
+        #centerReticle::after {
+            content: '';
+            position: absolute;
+            height: 18px;
+            width: 2px;
+            background: #58a6ff;
+            border-radius: 1px;
+        }
+
+        /* ── FLOATING GLASS SIDEBAR (COLLAPSIBLE) ── */
+        #sidebar {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            bottom: 16px;
+            width: 320px;
+            background: rgba(15, 23, 42, 0.88);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            gap: 12px;
+            z-index: 10;
+            overflow-y: auto;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+        }
+        #sidebar.collapsed {
+            transform: translateX(-340px);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Toggle Sidebar Button */
+        #btnToggleSidebar {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            z-index: 11;
+            background: rgba(22, 27, 34, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #58a6ff;
+            padding: 7px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #btnToggleSidebar:hover { background: #1f6feb; color: white; }
+
+        h1 { font-size: 15px; color: #58a6ff; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        .subtitle { font-size: 11px; color: #8b949e; line-height: 1.4; }
+
+        .section-box {
+            background: rgba(13, 17, 23, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .box-title { font-size: 10px; font-weight: bold; color: #7ee787; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        label { font-size: 11px; color: #c9d1d9; display: flex; justify-content: space-between; }
+        select, input, button {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #f0f6fc;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            outline: none;
+        }
+        select:focus, input:focus { border-color: #58a6ff; }
+
+        .btn-group { display: flex; gap: 6px; }
+        button { cursor: pointer; font-weight: bold; transition: all 0.15s ease; flex: 1; }
+        button:hover { background: #30363d; }
+        .btn-primary { background: #238636; border-color: #2ea043; }
+        .btn-primary:hover { background: #2ea043; }
+        .btn-blue { background: #1f6feb; border-color: #388bfd; }
+        .btn-blue:hover { background: #388bfd; }
+        .btn-red { background: #da3633; border-color: #f85149; }
+        .btn-red:hover { background: #f85149; }
+
+        /* Direction buttons grid */
+        .dir-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+        }
+        .dir-btn {
+            font-size: 10px;
+            padding: 6px 2px;
+            text-align: center;
+        }
+        .dir-btn.active {
+            background: #1f6feb;
+            border-color: #58a6ff;
+            color: #ffffff;
+        }
+
+        /* ── MOCK EEG SCOPE ── */
+        #eegCanvas {
+            width: 100%;
+            height: 55px;
+            background: #090d13;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+        }
+
+        /* ── HUD OVERLAYS ── */
+        #topHud {
+            position: absolute;
+            top: 16px;
+            right: 20px;
+            z-index: 5;
+            display: flex;
+            gap: 12px;
+            pointer-events: none;
+        }
+        .hud-badge {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .hud-title { font-size: 10px; color: #8b949e; text-transform: uppercase; }
+        .hud-val { font-size: 14px; font-weight: bold; color: #58a6ff; }
+
+        /* ── CENTERED TRIAL BANNER (BOTTOM) ── */
+        #trialBanner {
+            position: absolute;
+            bottom: 25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            padding: 14px 32px;
+            text-align: center;
+            pointer-events: none;
+            min-width: 360px;
+            z-index: 5;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+        #phaseLabel { font-size: 18px; font-weight: 800; color: #58a6ff; letter-spacing: 1px; }
+        #promptLabel { font-size: 11px; color: #8b949e; margin-top: 3px; }
+        #progressBar {
+            width: 100%;
+            height: 6px;
+            background: #21262d;
+            border-radius: 3px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        #progressFill {
+            width: 0%;
+            height: 100%;
+            background: #2ea043;
+            transition: width 0.05s linear;
+        }
+
+        /* Keyboard Legend */
+        #keyLegend {
+            position: absolute;
+            bottom: 12px;
+            right: 16px;
+            font-size: 10px;
+            color: #8b949e;
+            background: rgba(13, 17, 23, 0.7);
+            padding: 5px 10px;
+            border-radius: 6px;
+            pointer-events: none;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D OPENGL CANVAS (FULLSCREEN CENTERED) -->
+    <canvas id="glCanvas"></canvas>
+
+    <!-- CENTER FIXATION RETICLE -->
+    <div id="centerReticle" title="Center Fixation Anchor"></div>
+
+    <!-- TOGGLE SIDEBAR BUTTON -->
+    <button id="btnToggleSidebar">☰ Control Deck</button>
+
+    <!-- FLOATING GLASS SIDEBAR -->
+    <div id="sidebar">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 28px;">
+            <h1>🚀 Nautilus 3D BCI</h1>
+            <span style="font-size: 10px; background: #238636; padding: 2px 6px; border-radius: 4px; font-weight: bold;">WEBGL</span>
+        </div>
+        <div class="subtitle">Centered 6-DoF Spatial Neurofeedback Simulator (Zero Hardware Required)</div>
+
+        <!-- MOCK EEG SCOPE -->
+        <div class="section-box">
+            <div class="box-title">🧠 Synthetic EEG Stream (C3, Cz, C4)</div>
+            <canvas id="eegCanvas" width="280" height="55"></canvas>
+            <label>
+                <span>Alpha/Mu (8-12Hz):</span>
+                <span id="muVal" style="color: #7ee787;">18.4 µV</span>
+            </label>
+            <label>
+                <span>Beta ERD Status:</span>
+                <span id="erdVal" style="color: #58a6ff;">Resting (Idle)</span>
+            </label>
+        </div>
+
+        <!-- PARADIGM & EXPERIMENT CONTROLS -->
+        <div class="section-box">
+            <div class="box-title">⚙️ Paradigm Selection</div>
+            <select id="selParadigm">
+                <option value="trans6">6-Dir Translation (Surge, Sway, Heave)</option>
+                <option value="rot6">6-Dir Rotation (Pitch, Yaw, Roll)</option>
+                <option value="full12">Full 12-Direction 6-DoF</option>
+                <option value="ground4">4-Dir Plane (Forward, Back, Left, Right)</option>
+            </select>
+
+            <select id="selModel">
+                <option value="nautilus">Nautilus Cyber-Shuttle</option>
+                <option value="cube">6-DoF Orientation Cube</option>
+            </select>
+
+            <select id="selCamMode">
+                <option value="fixed">Fixed Observer (Forward Shrinks, Backward Grows)</option>
+                <option value="elastic">Elastic Damped Cam</option>
+                <option value="chase">Tethered Chase Cam (Glued)</option>
+            </select>
+
+            <label style="margin-top: 2px;">
+                <input type="checkbox" id="chkAudio" checked style="width: auto;">
+                <span>Web Audio Directional Tones</span>
+            </label>
+            <label>
+                <input type="checkbox" id="chkReticle" checked style="width: auto;">
+                <span>Show Center Fixation Cross</span>
+            </label>
+        </div>
+
+        <!-- TEST MODES -->
+        <div class="section-box">
+            <div class="box-title">🎯 Test Execution</div>
+            <div class="btn-group">
+                <button id="btnPractice" class="btn-blue">Quick Practice (4)</button>
+                <button id="btnStart" class="btn-primary">Start Experiment</button>
+            </div>
+            <button id="btnFreeFlight" style="margin-top: 3px;">🎮 Free Flight (Keyboard)</button>
+            <button id="btnStop" class="btn-red" style="display:none; margin-top: 3px;">✕ Stop Trial</button>
+        </div>
+
+        <!-- PROPORTIONAL 256-STEP DYNAMIC ACTIVATION (0..255) -->
+        <div class="section-box">
+            <div class="box-title" style="display: flex; justify-content: space-between; align-items: center;">
+                <span>⚡ Dynamic Intensity (256 Steps)</span>
+                <span id="txtStepVal" style="color: #58a6ff; font-weight: 800;">255 (1.000)</span>
+            </div>
+            <input type="range" id="rngIntensity" min="0" max="255" value="255" style="width: 100%; accent-color: #58a6ff;">
+            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #8b949e;">
+                <span>0 (0x00)</span>
+                <span id="txtHexVal">Hex: 0xFF | Float64: 1.000</span>
+                <span>255 (0xFF)</span>
+            </div>
+            <label style="margin-top: 4px;">
+                <input type="checkbox" id="chkAutoRamp" checked style="width: auto;">
+                <span>Analog Pressure Ramping (Key Hold)</span>
+            </label>
+        </div>
+
+        <!-- MANUAL / SIMULATED TRIGGER -->
+        <div class="section-box">
+            <div class="box-title">🕹️ Instant 6-DoF Actuators</div>
+            <div class="dir-grid">
+                <button class="dir-btn" data-dir="left">◀ Sway L</button>
+                <button class="dir-btn" data-dir="forward">▲ Surge Fwd</button>
+                <button class="dir-btn" data-dir="right">Sway R ▶</button>
+                <button class="dir-btn" data-dir="pitch_up">⮵ Pitch Up</button>
+                <button class="dir-btn" data-dir="backward">▼ Surge Back</button>
+                <button class="dir-btn" data-dir="pitch_down">⮶ Pitch Dn</button>
+                <button class="dir-btn" data-dir="up">▲ Heave Up</button>
+                <button class="dir-btn" data-dir="yaw_left">↺ Yaw L</button>
+                <button class="dir-btn" data-dir="yaw_right">↻ Yaw R</button>
+                <button class="dir-btn" data-dir="down">▼ Heave Dn</button>
+                <button class="dir-btn" data-dir="roll_left">⮢ Roll L</button>
+                <button class="dir-btn" data-dir="roll_right">⮣ Roll R</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HUD OVERLAYS -->
+    <div id="topHud">
+        <div class="hud-badge">
+            <span class="hud-title">Simulated Stream</span>
+            <span class="hud-val" id="hudStream">g.Nautilus 32ch (Mock)</span>
+        </div>
+        <div class="hud-badge">
+            <span class="hud-title">Current Trial</span>
+            <span class="hud-val" id="hudTrial">Free Flight</span>
+        </div>
+    </div>
+
+    <!-- CENTERED TRIAL BANNER -->
+    <div id="trialBanner">
+        <div id="phaseLabel">FREE FLIGHT MODE</div>
+        <div id="promptLabel">USE W/A/S/D OR CLICK DIRECTION BUTTONS TO PILOT</div>
+        <div id="progressBar"><div id="progressFill"></div></div>
+    </div>
+
+    <div id="keyLegend">
+        <b>Keys:</b> [W/S] Surge | [A/D] Sway | [Space/Shift] Heave | [Arrows] Pitch/Yaw | [Q/E] Roll | [V] Cam View | [M] Model | [C] Center
+    </div>
+
+    <!-- JAVASCRIPT ENGINE -->
+    <script>
+        // ── TOGGLE SIDEBAR ──────────────────────────────────────────
+        const sidebar = document.getElementById('sidebar');
+        const btnToggle = document.getElementById('btnToggleSidebar');
+        btnToggle.onclick = () => {
+            sidebar.classList.toggle('collapsed');
+            btnToggle.innerText = sidebar.classList.contains('collapsed') ? '☰ Control Deck' : '✕ Close Deck';
+        };
+
+        const reticle = document.getElementById('centerReticle');
+        document.getElementById('chkReticle').onchange = (e) => {
+            reticle.style.display = e.target.checked ? 'flex' : 'none';
+        };
+
+        // ── 1. WEB AUDIO SYNTHESIZER ──────────────────────────────────
+        let audioCtx = null;
+        function getAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            return audioCtx;
+        }
+
+        function playSpatialTone(dir, intensity = 1.0) {
+            if (!document.getElementById('chkAudio').checked) return;
+            const ctx = getAudioContext();
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+
+            const u = Math.max(0.08, Math.min(1.0, intensity));
+            gain.gain.setValueAtTime(0.001, now);
+            gain.gain.linearRampToValueAtTime(0.35 * u, now + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35 * (0.6 + 0.4 * u));
+
+            d = dir.toLowerCase();
+            if (d === 'forward') {
+                osc.frequency.setValueAtTime(180 + 40 * u, now);
+                osc.frequency.exponentialRampToValueAtTime(400 + 260 * u, now + 0.35);
+            } else if (d === 'backward') {
+                osc.frequency.setValueAtTime(400 + 260 * u, now);
+                osc.frequency.exponentialRampToValueAtTime(150 + 50 * u, now + 0.35);
+            } else if (d === 'left') {
+                osc.frequency.setValueAtTime(520, now);
+                if (pan) pan.pan.setValueAtTime(-1.0 * u, now);
+            } else if (d === 'right') {
+                osc.frequency.setValueAtTime(780, now);
+                if (pan) pan.pan.setValueAtTime(1.0 * u, now);
+            } else if (d === 'up' || d === 'pitch_up') {
+                osc.frequency.setValueAtTime(700 + 180 * u, now);
+                osc.frequency.exponentialRampToValueAtTime(1100 + 220 * u, now + 0.35);
+            } else if (d === 'down' || d === 'pitch_down') {
+                osc.frequency.setValueAtTime(260, now);
+                osc.frequency.exponentialRampToValueAtTime(100 + 20 * (1.0 - u), now + 0.35);
+            } else {
+                osc.frequency.setValueAtTime(440, now);
+            }
+
+            if (pan) {
+                osc.connect(gain);
+                gain.connect(pan);
+                pan.connect(ctx.destination);
+            } else {
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+            }
+
+            osc.start(now);
+            osc.stop(now + 0.38);
+        }
+
+        // ── 2. MOCK EEG WAVEFORM RENDERER (PROPORTIONAL ERD) ───────────
+        const eegCanvas = document.getElementById('eegCanvas');
+        const eegCtx = eegCanvas.getContext('2d');
+        let eegBuffer = new Array(150).fill(0);
+        let eegPhase = 0;
+
+        function updateMockEEG(activeDir, intensity = 1.0) {
+            eegPhase += 0.25;
+            const u = activeDir ? Math.max(0.05, Math.min(1.0, intensity)) : 0.0;
+            // Proportional ERD: Mu rhythm power suppresses smoothly with higher mental activation
+            let muAmp = 18.0 - 13.0 * u;
+            // Beta synchronization increases with motor thrust
+            let betaAmp = 4.0 + 8.0 * u;
+            let sample = muAmp * Math.sin(eegPhase) + betaAmp * Math.sin(eegPhase * 2.3) + (Math.random() - 0.5) * 5.0;
+
+            eegBuffer.push(sample);
+            if (eegBuffer.length > eegCanvas.width) eegBuffer.shift();
+
+            eegCtx.fillStyle = '#090d13';
+            eegCtx.fillRect(0, 0, eegCanvas.width, eegCanvas.height);
+            eegCtx.strokeStyle = '#58a6ff';
+            eegCtx.lineWidth = 1.5;
+            eegCtx.beginPath();
+            const cy = eegCanvas.height / 2;
+            for (let i = 0; i < eegBuffer.length; i++) {
+                let y = cy + eegBuffer[i] * 0.8;
+                if (i === 0) eegCtx.moveTo(i, y);
+                else eegCtx.lineTo(i, y);
+            }
+            eegCtx.stroke();
+
+            const step256 = Math.round(u * 255);
+            document.getElementById('muVal').innerText = muAmp.toFixed(1) + " µV";
+            document.getElementById('erdVal').innerText = activeDir 
+                ? `ERD ${activeDir.toUpperCase()} [${step256}/255 | ${(u * 100).toFixed(0)}%]`
+                : "Resting (Idle 0/255)";
+            document.getElementById('erdVal').style.color = activeDir ? "#f85149" : "#58a6ff";
+        }
+
+        // ── 3. 3D WEBGL ENGINE ───────────────────────────────────────
+        const canvas = document.getElementById('glCanvas');
+        const gl = canvas.getContext('webgl', { antialias: true });
+
+        // Accurate Matrix LookAt & Perspective
+        function mat4Perspective(fov, aspect, near, far) {
+            const f = 1.0 / Math.tan(fov * Math.PI / 360.0);
+            return [
+                f / aspect, 0, 0, 0,
+                0, f, 0, 0,
+                0, 0, (far + near) / (near - far), -1,
+                0, 0, (2 * far * near) / (near - far), 0
+            ];
+        }
+
+        function mat4LookAt(eye, target, up) {
+            let z = [eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]];
+            let len = Math.hypot(z[0], z[1], z[2]);
+            z = [z[0]/len, z[1]/len, z[2]/len];
+
+            let x = [up[1]*z[2] - up[2]*z[1], up[2]*z[0] - up[0]*z[2], up[0]*z[1] - up[1]*z[0]];
+            len = Math.hypot(x[0], x[1], x[2]);
+            x = [x[0]/len, x[1]/len, x[2]/len];
+
+            let y = [z[1]*x[2] - z[2]*x[1], z[2]*x[0] - z[0]*x[2], z[0]*x[1] - z[1]*x[0]];
+
+            return [
+                x[0], y[0], z[0], 0,
+                x[1], y[1], z[1], 0,
+                x[2], y[2], z[2], 0,
+                -(x[0]*eye[0] + x[1]*eye[1] + x[2]*eye[2]),
+                -(y[0]*eye[0] + y[1]*eye[1] + y[2]*eye[2]),
+                -(z[0]*eye[0] + z[1]*eye[1] + z[2]*eye[2]),
+                1
+            ];
+        }
+
+        function mat4Identity() {
+            return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+        }
+
+        function mat4Multiply(a, b) {
+            let out = new Array(16);
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 4; j++) {
+                    out[j * 4 + i] =
+                        a[i] * b[j * 4] +
+                        a[4 + i] * b[j * 4 + 1] +
+                        a[8 + i] * b[j * 4 + 2] +
+                        a[12 + i] * b[j * 4 + 3];
+                }
+            }
+            return out;
+        }
+
+        function mat4Translate(m, x, y, z) {
+            let t = mat4Identity();
+            t[12] = x; t[13] = y; t[14] = z;
+            return mat4Multiply(m, t);
+        }
+
+        function mat4RotateX(m, rad) {
+            let r = mat4Identity();
+            let c = Math.cos(rad), s = Math.sin(rad);
+            r[5] = c; r[6] = s; r[9] = -s; r[10] = c;
+            return mat4Multiply(m, r);
+        }
+
+        function mat4RotateY(m, rad) {
+            let r = mat4Identity();
+            let c = Math.cos(rad), s = Math.sin(rad);
+            r[0] = c; r[2] = -s; r[8] = s; r[10] = c;
+            return mat4Multiply(m, r);
+        }
+
+        function mat4RotateZ(m, rad) {
+            let r = mat4Identity();
+            let c = Math.cos(rad), s = Math.sin(rad);
+            r[0] = c; r[1] = s; r[4] = -s; r[5] = c;
+            return mat4Multiply(m, r);
+        }
+
+        // Shaders
+        const vsSrc = `
+            attribute vec3 a_pos;
+            attribute vec4 a_color;
+            uniform mat4 u_mvp;
+            varying vec4 v_color;
+            void main() {
+                v_color = a_color;
+                gl_Position = u_mvp * vec4(a_pos, 1.0);
+            }
+        `;
+        const fsSrc = `
+            precision mediump float;
+            varying vec4 v_color;
+            uniform float u_alpha;
+            void main() {
+                gl_FragColor = vec4(v_color.rgb, v_color.a * u_alpha);
+            }
+        `;
+
+        function createShader(gl, type, src) {
+            const s = gl.createShader(type);
+            gl.shaderSource(s, src);
+            gl.compileShader(s);
+            return s;
+        }
+
+        const prog = gl.createProgram();
+        gl.attachShader(prog, createShader(gl, gl.VERTEX_SHADER, vsSrc));
+        gl.attachShader(prog, createShader(gl, gl.FRAGMENT_SHADER, fsSrc));
+        gl.linkProgram(prog);
+        gl.useProgram(prog);
+
+        const aPos = gl.getAttribLocation(prog, "a_pos");
+        const aColor = gl.getAttribLocation(prog, "a_color");
+        const uMvp = gl.getUniformLocation(prog, "u_mvp");
+        const uAlpha = gl.getUniformLocation(prog, "u_alpha");
+
+        gl.enable(gl.DEPTH_TEST);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.clearColor(0.025, 0.04, 0.065, 1.0);
+
+        // Build Geometry: Nautilus Shuttle
+        let shuttleVerts = [];
+        const cHull = [0.15, 0.22, 0.35, 1.0];
+        const cHullHi = [0.22, 0.35, 0.55, 1.0];
+        const cWing = [0.0, 0.65, 0.85, 0.95];
+        const cCockpit = [0.2, 0.95, 0.9, 0.95];
+        const cFin = [0.9, 0.3, 0.5, 0.95];
+
+        const nose = [0, 0, 2.2];
+        const fTop = [0, 0.4, 0.8], fBot = [0, -0.3, 0.8], fL = [-0.6, 0, 0.8], fR = [0.6, 0, 0.8];
+        const tTop = [0, 0.35, -1.8], tBot = [0, -0.25, -1.8], tL = [-0.45, 0, -1.8], tR = [0.45, 0, -1.8];
+
+        function addTri(v1, v2, v3, col) {
+            shuttleVerts.push(...v1, ...col, ...v2, ...col, ...v3, ...col);
+        }
+        function addQuad(v1, v2, v3, v4, col) {
+            addTri(v1, v2, v3, col);
+            addTri(v1, v3, v4, col);
+        }
+
+        // Nose
+        addTri(nose, fTop, fL, cHullHi);
+        addTri(nose, fTop, fR, cHullHi);
+        addTri(nose, fBot, fL, cHull);
+        addTri(nose, fBot, fR, cHull);
+
+        // Body
+        addQuad(fTop, fR, tR, tTop, cHullHi);
+        addQuad(fTop, tTop, tL, fL, cHullHi);
+        addQuad(fBot, tBot, tR, fR, cHull);
+        addQuad(fBot, fL, tL, tBot, cHull);
+
+        // Wings
+        const wLt = [-2.4, 0.05, -1.1], wRt = [2.4, 0.05, -1.1];
+        addTri([-0.55, 0, 0.7], wLt, [-0.45, 0, -1.5], cWing);
+        addTri([0.55, 0, 0.7], [-0.45, 0, -1.5], wRt, cWing);
+
+        // Cockpit
+        const cFront = [0, 0.25, 1.4], cPeak = [0, 0.65, 0.3], cSideL = [-0.25, 0.35, 0.4], cSideR = [0.25, 0.35, 0.4], cBack = [0, 0.45, -0.4];
+        addTri(cFront, cSideL, cPeak, cCockpit);
+        addTri(cFront, cPeak, cSideR, cCockpit);
+        addTri(cPeak, cSideL, cBack, cCockpit);
+        addTri(cPeak, cBack, cSideR, cCockpit);
+
+        // Rudder Fin
+        addTri([0, 0.35, -0.5], [0, 1.15, -1.7], [0, 0.3, -1.75], cFin);
+
+        const bufShuttle = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufShuttle);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(shuttleVerts), gl.STATIC_DRAW);
+        const shuttleCount = shuttleVerts.length / 7;
+
+        // Build Geometry: 6-DoF Orientation Cube
+        let cubeVerts = [];
+        let cubeLines = [];
+        const cs = 1.0;
+        const cv = [
+            [-cs, -cs, -cs], [cs, -cs, -cs], [cs, cs, -cs], [-cs, cs, -cs],
+            [-cs, -cs,  cs], [cs, -cs,  cs], [cs, cs,  cs], [-cs, cs,  cs]
+        ];
+        const cubeFaces = [
+            { idx: [4, 5, 6, 7], col: [0.0, 0.85, 1.0, 0.95] },  // Front (+Z, Cyan)
+            { idx: [1, 0, 3, 2], col: [1.0, 0.5, 0.1, 0.95] },   // Back (-Z, Orange)
+            { idx: [3, 2, 6, 7], col: [0.15, 0.95, 0.45, 0.95] },// Top (+Y, Green)
+            { idx: [0, 1, 5, 4], col: [0.85, 0.2, 0.85, 0.95] }, // Bottom (-Y, Magenta)
+            { idx: [0, 4, 7, 3], col: [0.15, 0.45, 0.95, 0.95] },// Left (-X, Blue)
+            { idx: [5, 1, 2, 6], col: [1.0, 0.85, 0.15, 0.95] }  // Right (+X, Yellow)
+        ];
+        for (let f of cubeFaces) {
+            let p1 = cv[f.idx[0]], p2 = cv[f.idx[1]], p3 = cv[f.idx[2]], p4 = cv[f.idx[3]];
+            cubeVerts.push(...p1, ...f.col, ...p2, ...f.col, ...p3, ...f.col);
+            cubeVerts.push(...p1, ...f.col, ...p3, ...f.col, ...p4, ...f.col);
+        }
+        const cubeEdges = [
+            [0, 1], [1, 2], [2, 3], [3, 0],
+            [4, 5], [5, 6], [6, 7], [7, 4],
+            [0, 4], [1, 5], [2, 6], [3, 7]
+        ];
+        const edgeCol = [1.0, 1.0, 1.0, 1.0];
+        for (let [e1, e2] of cubeEdges) {
+            cubeLines.push(...cv[e1], ...edgeCol, ...cv[e2], ...edgeCol);
+        }
+        // Direction arrow on front (+Z) face
+        const arrowCol = [1.0, 1.0, 1.0, 1.0];
+        cubeLines.push(0.0, 0.6, cs + 0.02, ...arrowCol, 0.0, -0.4, cs + 0.02, ...arrowCol);
+        cubeLines.push(0.0, 0.6, cs + 0.02, ...arrowCol, -0.35, 0.15, cs + 0.02, ...arrowCol);
+        cubeLines.push(0.0, 0.6, cs + 0.02, ...arrowCol, 0.35, 0.15, cs + 0.02, ...arrowCol);
+
+        const bufCube = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufCube);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubeVerts), gl.STATIC_DRAW);
+        const cubeCount = cubeVerts.length / 7;
+
+        const bufCubeLines = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufCubeLines);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubeLines), gl.STATIC_DRAW);
+        const cubeLineCount = cubeLines.length / 7;
+
+        // Current Active 3D Model
+        let activeModel = 'nautilus';
+        document.getElementById('selModel').onchange = (e) => {
+            activeModel = e.target.value;
+        };
+
+        // Build Floor Grid
+        let gridLines = [];
+        for (let x = -30; x <= 30; x += 2) {
+            let col = Math.abs(x) < 0.1 ? [0, 0.75, 0.95, 0.7] : [0.1, 0.35, 0.5, 0.3];
+            gridLines.push(x, -2.5, -30, ...col, x, -2.5, 30, ...col);
+        }
+        for (let z = -30; z <= 30; z += 2) {
+            gridLines.push(-30, -2.5, z, 0.1, 0.35, 0.5, 0.3, 30, -2.5, z, 0.1, 0.35, 0.5, 0.3);
+        }
+        const bufGrid = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufGrid);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(gridLines), gl.STATIC_DRAW);
+        const gridCount = gridLines.length / 7;
+
+        // Dynamic Particles Buffer
+        const bufParticles = gl.createBuffer();
+
+        // Kinematics & Centered State
+        let pos = [0, 0, 0];
+        let rot = [0, 0, 0];
+        let targetPos = [0, 0, 0];
+        let targetRot = [0, 0, 0];
+        let activeDir = null;
+        let particles = [];
+
+        // 256-Step Proportional Intensity State (uint8 0..255 & float64 0.0..1.0)
+        let currentIntensityStep = 255;
+        let currentRampValue = 0.0;
+        let isKeyHeld = false;
+
+        function emitParticles(dir, u = 1.0) {
+            let count = Math.ceil(4 * u);
+            for (let i = 0; i < count; i++) {
+                let rx = (Math.random() - 0.5) * 0.15;
+                let ry = (Math.random() - 0.5) * 0.15;
+                particles.push({
+                    pos: [pos[0] + rx, pos[1] + ry, pos[2] - 1.8],
+                    vel: [rx * 2, ry * 2, (-2.0 - Math.random() * 3.0) * u],
+                    life: 0.2 + 0.2 * u, maxLife: 0.2 + 0.2 * u
+                });
+            }
+        }
+
+        // ── 4. TRIAL SEQUENCE STATE MACHINE ─────────────────────────
+        let isTrialRunning = false;
+        let trialIndex = 0;
+        let trialList = [];
+        let currentPhase = "idle";
+        let phaseTimer = 0;
+        let phaseDuration = 1.0;
+
+        function startTrials(practice = false) {
+            getAudioContext();
+            isTrialRunning = true;
+            document.getElementById('btnStart').style.display = 'none';
+            document.getElementById('btnPractice').style.display = 'none';
+            document.getElementById('btnFreeFlight').style.display = 'none';
+            document.getElementById('btnStop').style.display = 'block';
+
+            const paradigm = document.getElementById('selParadigm').value;
+            let dirs = [];
+            if (paradigm === 'trans6') dirs = ['forward', 'backward', 'left', 'right', 'up', 'down'];
+            else if (paradigm === 'rot6') dirs = ['pitch_up', 'pitch_down', 'yaw_left', 'yaw_right', 'roll_left', 'roll_right'];
+            else if (paradigm === 'ground4') dirs = ['forward', 'backward', 'left', 'right'];
+            else dirs = ['forward', 'backward', 'left', 'right', 'up', 'down', 'pitch_up', 'pitch_down', 'yaw_left', 'yaw_right', 'roll_left', 'roll_right'];
+
+            const reps = practice ? 1 : 4;
+            trialList = [];
+            for (let d of dirs) {
+                for (let r = 0; r < reps; r++) trialList.push(d);
+            }
+            trialList.sort(() => Math.random() - 0.5);
+            trialIndex = 0;
+
+            nextTrial();
+        }
+
+        function nextTrial() {
+            if (trialIndex >= trialList.length) {
+                finishTrials();
+                return;
+            }
+            const d = trialList[trialIndex];
+            document.getElementById('hudTrial').innerText = `Trial ${trialIndex + 1} / ${trialList.length}`;
+            enterPhase("fixation", "FOCUS & CLEAR MIND", "#8b949e", 2.0, () => {
+                enterPhase("cue", `IMAGINE: ${d.toUpperCase()}`, "#58a6ff", 1.5, () => {
+                    executeAction(d);
+                    enterPhase("task", `ACTION: EXECUTING ${d.toUpperCase()}`, "#2ea043", 4.0, () => {
+                        resetToCenter();
+                        enterPhase("rest", "RELAX & REST", "#8b949e", 2.0, () => {
+                            trialIndex++;
+                            nextTrial();
+                        });
+                    });
+                });
+            });
+        }
+
+        let phaseTimeout = null;
+        function enterPhase(name, label, color, duration, onComplete) {
+            currentPhase = name;
+            phaseDuration = duration;
+            phaseTimer = performance.now();
+            document.getElementById('phaseLabel').innerText = label;
+            document.getElementById('phaseLabel').style.color = color;
+            document.getElementById('promptLabel').innerText = name.toUpperCase() + ` PHASE (${duration}s)`;
+
+            if (name === 'cue') {
+                playSpatialTone(trialList[trialIndex]);
+            }
+
+            clearTimeout(phaseTimeout);
+            phaseTimeout = setTimeout(onComplete, duration * 1000);
+        }
+
+        function finishTrials() {
+            isTrialRunning = false;
+            document.getElementById('btnStart').style.display = 'block';
+            document.getElementById('btnPractice').style.display = 'block';
+            document.getElementById('btnFreeFlight').style.display = 'block';
+            document.getElementById('btnStop').style.display = 'none';
+            document.getElementById('phaseLabel').innerText = "SESSION COMPLETE";
+            document.getElementById('phaseLabel').style.color = "#2ea043";
+            resetToCenter();
+        }
+
+        function stopTrials() {
+            clearTimeout(phaseTimeout);
+            finishTrials();
+            document.getElementById('phaseLabel').innerText = "FREE FLIGHT MODE";
+            document.getElementById('phaseLabel').style.color = "#58a6ff";
+            document.getElementById('promptLabel').innerText = "USE W/A/S/D TO PILOT";
+        }
+
+        function executeAction(d, step = currentIntensityStep) {
+            activeDir = d;
+            const u = Math.max(0.02, Math.min(1.0, step / 255.0));
+            targetPos = [0, 0, 0];
+            targetRot = [0, 0, 0];
+
+            const baseDist = 3.5 * u;
+            const surgeDist = 4.6 * u;
+            const baseRot = 35.0 * u;
+
+            if (d === 'forward') { targetPos[2] = surgeDist; targetRot[0] = -12.0 * u; }
+            else if (d === 'backward') { targetPos[2] = -surgeDist * 0.85; targetRot[0] = 12.0 * u; }
+            else if (d === 'left') { targetPos[0] = -baseDist; targetRot[2] = 30.0 * u; }
+            else if (d === 'right') { targetPos[0] = baseDist; targetRot[2] = -30.0 * u; }
+            else if (d === 'up') { targetPos[1] = 2.5 * u; targetRot[0] = 15.0 * u; }
+            else if (d === 'down') { targetPos[1] = -2.5 * u; targetRot[0] = -15.0 * u; }
+            else if (d === 'pitch_up') { targetRot[0] = baseRot; targetPos[1] = 1.0 * u; }
+            else if (d === 'pitch_down') { targetRot[0] = -baseRot; targetPos[1] = -1.0 * u; }
+            else if (d === 'yaw_left') { targetRot[1] = 45.0 * u; }
+            else if (d === 'yaw_right') { targetRot[1] = -45.0 * u; }
+            else if (d === 'roll_left') { targetRot[2] = 45.0 * u; }
+            else if (d === 'roll_right') { targetRot[2] = -45.0 * u; }
+        }
+
+        function resetToCenter() {
+            targetPos = [0, 0, 0];
+            targetRot = [0, 0, 0];
+            activeDir = null;
+            isKeyHeld = false;
+        }
+
+        // Intensity Slider UI updater
+        const rng = document.getElementById('rngIntensity');
+        const txtStep = document.getElementById('txtStepVal');
+        const txtHex = document.getElementById('txtHexVal');
+
+        function updateIntensityDisplay(step) {
+            const clamped = Math.round(Math.max(0, Math.min(255, step)));
+            const norm = (clamped / 255.0).toFixed(3);
+            const hex = "0x" + clamped.toString(16).toUpperCase().padStart(2, '0');
+            txtStep.innerText = `${clamped} (${norm})`;
+            txtHex.innerText = `Hex: ${hex} | Float64: ${norm}`;
+        }
+
+        rng.oninput = (e) => {
+            currentIntensityStep = parseInt(e.target.value);
+            updateIntensityDisplay(currentIntensityStep);
+            if (activeDir && !isTrialRunning) {
+                executeAction(activeDir, currentIntensityStep);
+            }
+        };
+
+        // ── 5. RENDER LOOP (PRECISELY CENTERED) ───────────────────────
+        let lastTime = performance.now();
+        function renderLoop() {
+            const now = performance.now();
+            const dt = Math.min(0.05, (now - lastTime) / 1000.0);
+            lastTime = now;
+
+            // Fullscreen Resize
+            if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                gl.viewport(0, 0, canvas.width, canvas.height);
+            }
+
+            // Update Progress Bar
+            if (isTrialRunning) {
+                let pct = Math.min(1.0, (now - phaseTimer) / (phaseDuration * 1000));
+                document.getElementById('progressFill').style.width = (pct * 100) + '%';
+            }
+
+            // Dynamic 256-Step Pressure Ramping
+            let effectiveStep = currentIntensityStep;
+            const autoRamp = document.getElementById('chkAutoRamp').checked;
+            if (autoRamp && !isTrialRunning) {
+                if (isKeyHeld && activeDir) {
+                    currentRampValue = Math.min(currentIntensityStep, currentRampValue + 600.0 * dt);
+                    effectiveStep = currentRampValue;
+                    executeAction(activeDir, effectiveStep);
+                } else if (!isKeyHeld && currentRampValue > 0) {
+                    currentRampValue = Math.max(0.0, currentRampValue - 750.0 * dt);
+                    effectiveStep = currentRampValue;
+                    if (currentRampValue > 1.0) {
+                        executeAction(activeDir, effectiveStep);
+                    } else {
+                        resetToCenter();
+                    }
+                }
+                updateIntensityDisplay(effectiveStep);
+            }
+
+            const effectiveNorm = effectiveStep / 255.0;
+
+            // Lerp Physics
+            pos[0] += (targetPos[0] - pos[0]) * Math.min(1.0, 4.0 * dt);
+            pos[1] += (targetPos[1] - pos[1]) * Math.min(1.0, 4.0 * dt);
+            pos[2] += (targetPos[2] - pos[2]) * Math.min(1.0, 4.0 * dt);
+
+            rot[0] += (targetRot[0] - rot[0]) * Math.min(1.0, 5.0 * dt);
+            rot[1] += (targetRot[1] - rot[1]) * Math.min(1.0, 5.0 * dt);
+            rot[2] += (targetRot[2] - rot[2]) * Math.min(1.0, 5.0 * dt);
+
+            // Subtle organic hover at rest
+            if (!activeDir && Math.abs(pos[0]) < 0.05 && Math.abs(pos[2]) < 0.05) {
+                pos[1] = 0.06 * Math.sin(now * 0.002);
+            }
+
+            if (activeDir) emitParticles(activeDir, effectiveNorm);
+
+            // Clear Screen
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+            // Camera LookAt Centering & Perspective Depth
+            const camMode = document.getElementById('selCamMode').value;
+            const camDist = 8.5;
+            const camPitch = 16.0 * Math.PI / 180;
+            let eye = [0, 0, 0];
+            let targetCenter = [0, 0, 0];
+
+            if (camMode === 'fixed') {
+                // Fixed Observer: Observer stays at fixed world station
+                // Forward (+Z) moves away from camera -> distance increases -> object naturally gets smaller!
+                // Backward (-Z) moves toward camera -> distance decreases -> object naturally gets larger!
+                eye = [0.0, camDist * Math.sin(camPitch), -camDist * Math.cos(camPitch)];
+                targetCenter = [pos[0] * 0.25, 0.15 + pos[1] * 0.25, 0.1 + pos[2] * 0.15];
+            } else if (camMode === 'elastic') {
+                // Elastic Damped: Follows with lag so surge causes temporary shrink/grow before catchup
+                if (!window.camEyeLag) window.camEyeLag = [0, camDist * Math.sin(camPitch), -camDist * Math.cos(camPitch)];
+                const desiredEye = [
+                    pos[0] * 0.5,
+                    pos[1] * 0.5 + camDist * Math.sin(camPitch),
+                    pos[2] * 0.35 - camDist * Math.cos(camPitch)
+                ];
+                window.camEyeLag[0] += (desiredEye[0] - window.camEyeLag[0]) * Math.min(1.0, 2.0 * dt);
+                window.camEyeLag[1] += (desiredEye[1] - window.camEyeLag[1]) * Math.min(1.0, 2.0 * dt);
+                window.camEyeLag[2] += (desiredEye[2] - window.camEyeLag[2]) * Math.min(1.0, 2.0 * dt);
+                eye = window.camEyeLag;
+                targetCenter = [pos[0], pos[1] + 0.15, pos[2] + 0.1];
+            } else {
+                // Tethered Chase: Camera rigidly glued to vehicle
+                eye = [
+                    pos[0],
+                    pos[1] + camDist * Math.sin(camPitch),
+                    pos[2] - camDist * Math.cos(camPitch)
+                ];
+                targetCenter = [pos[0], pos[1] + 0.15, pos[2] + 0.1];
+            }
+
+            const aspect = canvas.width / canvas.height;
+            const proj = mat4Perspective(45.0, aspect, 0.1, 150.0);
+            const view = mat4LookAt(eye, targetCenter, [0, 1, 0]);
+            const vp = mat4Multiply(proj, view);
+
+            // 1. Draw Centered Floor Grid
+            gl.uniformMatrix4fv(uMvp, false, new Float32Array(vp));
+            gl.uniform1f(uAlpha, 1.0);
+            gl.bindBuffer(gl.ARRAY_BUFFER, bufGrid);
+            gl.enableVertexAttribArray(aPos);
+            gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 7 * 4, 0);
+            gl.enableVertexAttribArray(aColor);
+            gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, 7 * 4, 3 * 4);
+            gl.drawArrays(gl.LINES, 0, gridCount);
+
+            // 2. Draw Centered 3D Model (Shuttle or 6-DoF Cube)
+            let model = mat4Identity();
+            model = mat4Translate(model, pos[0], pos[1], pos[2]);
+            model = mat4RotateY(model, rot[1] * Math.PI / 180);
+            model = mat4RotateX(model, rot[0] * Math.PI / 180);
+            model = mat4RotateZ(model, rot[2] * Math.PI / 180);
+
+            const mvp = mat4Multiply(vp, model);
+            gl.uniformMatrix4fv(uMvp, false, new Float32Array(mvp));
+
+            if (activeModel === 'cube') {
+                // Draw 6-DoF Cube Solid Faces
+                gl.bindBuffer(gl.ARRAY_BUFFER, bufCube);
+                gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 7 * 4, 0);
+                gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, 7 * 4, 3 * 4);
+                gl.drawArrays(gl.TRIANGLES, 0, cubeCount);
+
+                // Draw White Edges & Front Direction Indicator Arrow
+                gl.bindBuffer(gl.ARRAY_BUFFER, bufCubeLines);
+                gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 7 * 4, 0);
+                gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, 7 * 4, 3 * 4);
+                gl.drawArrays(gl.LINES, 0, cubeLineCount);
+            } else {
+                gl.bindBuffer(gl.ARRAY_BUFFER, bufShuttle);
+                gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 7 * 4, 0);
+                gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, 7 * 4, 3 * 4);
+                gl.drawArrays(gl.TRIANGLES, 0, shuttleCount);
+            }
+
+            // Update Mock EEG Waveform with continuous intensity
+            updateMockEEG(activeDir, effectiveNorm);
+
+            requestAnimationFrame(renderLoop);
+        }
+
+        // ── 6. UI & EVENT BINDINGS ──────────────────────────────────
+        document.getElementById('btnStart').onclick = () => startTrials(false);
+        document.getElementById('btnPractice').onclick = () => startTrials(true);
+        document.getElementById('btnStop').onclick = stopTrials;
+        document.getElementById('btnFreeFlight').onclick = () => {
+            stopTrials();
+            document.getElementById('phaseLabel').innerText = "FREE FLIGHT PILOT";
+        };
+
+        // Direction buttons click
+        document.querySelectorAll('.dir-btn').forEach(btn => {
+            btn.onmousedown = () => {
+                const d = btn.dataset.dir;
+                isKeyHeld = true;
+                playSpatialTone(d, currentIntensityStep / 255.0);
+                executeAction(d, currentIntensityStep);
+            };
+            btn.onmouseup = () => {
+                isKeyHeld = false;
+                resetToCenter();
+            };
+        });
+
+        // Keyboard navigation
+        window.onkeydown = (e) => {
+            const k = e.key.toLowerCase();
+            let d = null;
+            if (k === 'w') d = 'forward';
+            else if (k === 's') d = 'backward';
+            else if (k === 'a') d = 'left';
+            else if (k === 'd') d = 'right';
+            else if (k === ' ' || k === 'r') d = 'up';
+            else if (e.shiftKey || k === 'f') d = 'down';
+            else if (e.key === 'ArrowUp') d = 'pitch_up';
+            else if (e.key === 'ArrowDown') d = 'pitch_down';
+            else if (e.key === 'ArrowLeft') d = 'yaw_left';
+            else if (e.key === 'ArrowRight') d = 'yaw_right';
+            else if (k === 'q') d = 'roll_left';
+            else if (k === 'e') d = 'roll_right';
+            else if (k === 'm') {
+                activeModel = (activeModel === 'cube' ? 'nautilus' : 'cube');
+                document.getElementById('selModel').value = activeModel;
+            }
+            else if (k === 'v') {
+                const sel = document.getElementById('selCamMode');
+                sel.selectedIndex = (sel.selectedIndex + 1) % sel.options.length;
+            }
+            else if (k === 'c') resetToCenter();
+
+            if (d && !isTrialRunning) {
+                isKeyHeld = true;
+                if (!activeDir || activeDir !== d) {
+                    playSpatialTone(d, currentIntensityStep / 255.0);
+                    if (!document.getElementById('chkAutoRamp').checked) {
+                        currentRampValue = currentIntensityStep;
+                    }
+                }
+                executeAction(d, currentRampValue || currentIntensityStep);
+            }
+        };
+        window.onkeyup = () => {
+            isKeyHeld = false;
+            if (!document.getElementById('chkAutoRamp').checked && !isTrialRunning) {
+                resetToCenter();
+            }
+        };
+
+        // Start render loop
+        requestAnimationFrame(renderLoop);
+    </script>
+</body>
+</html>
