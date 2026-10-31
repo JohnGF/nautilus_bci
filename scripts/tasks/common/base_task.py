@@ -8,10 +8,14 @@ except ImportError:
     HAS_LSL = False
 
 class BaseTaskApp(QMainWindow):
-    def __init__(self, marker_name="TaskMarkers", source_id="Task_Markers_2026"):
+    def __init__(self, marker_name="TaskMarkers", source_id=None):
         super().__init__()
         self.marker_name = marker_name
-        self.source_id = source_id
+        ts_suffix = int(time.time() * 1000)
+        if not source_id:
+            self.source_id = f"{marker_name}_{ts_suffix}"
+        else:
+            self.source_id = f"{source_id}_{ts_suffix}"
 
         self.outlet = None
         self.init_lsl()
@@ -49,3 +53,11 @@ class BaseTaskApp(QMainWindow):
         if hasattr(self, 'recorder_widget') and self.recorder_widget and self.recorder_widget.recorder and self.recorder_widget.recorder.is_recording:
             rel_time = timestamp - self.recorder_widget.recorder.start_time_lsl
             self.recorder_widget.recorder.marker_events.append((rel_time, str(marker_str), duration))
+
+    def close_lsl(self):
+        if self.outlet:
+            self.outlet = None
+
+    def closeEvent(self, event):
+        self.close_lsl()
+        super().closeEvent(event)

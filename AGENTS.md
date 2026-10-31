@@ -36,10 +36,30 @@
 - BIDS datasets (`scripts/bids*/`) are large and stable — do not move or restructure them. `*_scans.tsv` churn in git status is pre-existing noise.
 - Tower Defense game code resolves via `find_tower_defense_dirs()` in `scripts/training/{train_and_run,gui}.py` — canonical location is `games/tower-defense-bci/python/`, legacy root location kept as fallback.
 
+- **Before any decoding/statistics on `scripts/bids*/`, read `docs/science-notes/DATASET_CONFOUNDS.md`.** Genre is confounded with subject, task with session, and `bids_listening/sub-01/ses-02` duplicates `bids_music/sub-01/ses-02`. Never derive class labels from file or session membership.
+- **Strict decoding & anti-leakage methodology (MANDATORY):** Read and follow [`docs/guides/STRICT_DECODING_METHODOLOGY.md`](docs/guides/STRICT_DECODING_METHODOLOGY.md) for all decoding/prediction scripts (pre-cue baseline subtraction, fold-internal transformations, sham rest negative controls to prove silence is not learned, label permutation tests, and training data quantification).
+- **Anti-leakage checklist & roadmap:** Refer to [`todos.md`](todos.md) for required anti-leakage methodologies (nested CV, fold-internal band/channel selection, permutation controls, acoustic negative controls, session/equipment alignment) and subject recording duration breakdowns.
+
 ## Submodule rules
 
 - `games/tower-defense-bci`, `games/fnf_prot`, `integrations/galaxy_watch_lsl` are submodules. **Do not edit files inside them** — changes belong in their own repos.
 - Moving a submodule requires updating `.gitmodules`, `.git/config` (`git config --rename-section`), the `.git` gitdir pointer, and `core.worktree` in `.git/modules/<name>/config`. If in doubt, don't move them.
+
+## LLM context tooling (laya-files)
+
+`laya-files` is a global tool (installed from `~/dotfiles/bin/laya-files` → `~/.local/bin/laya-files`) that
+asks the local Laya System 1 daemon which files belong in an LLM pair-programming context, so aider/Cline
+don't ingest weights, BIDS data, or vendor manuals.
+
+```bash
+laya-files                          # triage the current repo
+laya-files --threshold 0.6          # more aggressive ignore list
+laya-files --aiderignore .aiderignore   # write the ignore list to a file
+```
+
+Rules of thumb: source/tests/docs → keep; data buffers, pretrained weights (`models/`), `assets/`,
+`docs/vendor-manuals/`, BIDS `.set/.fdt`, and generated `results/` → ignore. If the daemon is down the
+tool aborts with a hint (`systemctl --user start laya`).
 
 ## Verification before finishing
 
@@ -51,3 +71,5 @@
 
 - `assets/` (~400 MB) and large `results/` binaries exceed GitHub's 50 MB/file recommendation — migrate to Git LFS.
 - `models/__pycache__/*.pyc` is staged but should be ignored; `fnf_decoding_metrics.json` still embeds old `scripts/analysis/...` path strings (regenerable artifact).
+
+_Repo orientation + current task: See `AI_TRIAGE.md` (regenerate with `laya-files --brief "<task>"`)._

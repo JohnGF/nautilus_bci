@@ -130,7 +130,7 @@ def main():
             shutil.rmtree(bids_root)
         os.makedirs(bids_root, exist_ok=True)
 
-        recorder = BIDSRecorder(bids_root=bids_root, marker_stream_name=marker_name)
+        recorder = BIDSRecorder(bids_root=bids_root, marker_stream_name=marker_name, marker_source_id=task_gui.source_id)
 
         time.sleep(1.0)
 
