@@ -271,12 +271,32 @@ class MultimodalBIDSRecorder:
                     ch_names.append(f"EEG{i+1:03d}")
                     ch_types.append('eeg')
 
+            # If the driver gave generic/numeric channel labels, map to the standard GPYPE_32 10-20 names
+            GPYPE_32 = [
+                "Fp1", "Fp2", "AF3", "AF4", "F7", "F3", "Fz", "F4", "F8",
+                "FC5", "FC1", "FC2", "FC6", "T7", "C3", "Cz", "C4", "T8",
+                "CP5", "CP1", "CP2", "CP6", "P7", "P3", "Pz", "P4", "P8",
+                "PO7", "PO3", "PO4", "PO8", "Oz",
+            ]
+            has_1020 = any(n.upper() in ("C3", "C4", "P3", "P4", "OZ") for n in ch_names)
+            if not has_1020 and len(ch_names) >= 32:
+                ch_names[:32] = GPYPE_32
+
+            # Housekeeping channels are not EEG
+            for idx, c_name in enumerate(ch_names):
+                if c_name.lower() in ('battery', 'counter', 'sync', 'status'):
+                    ch_types[idx] = 'misc'
+
             # Convert uV to V if needed
             if np.max(np.abs(eeg_raw_data)) > 1.0:
                 eeg_raw_data = eeg_raw_data * 1e-6
 
             mne_info = mne.create_info(ch_names=ch_names, sfreq=srate, ch_types=ch_types)
             raw = mne.io.RawArray(eeg_raw_data, mne_info)
+            try:
+                raw.set_montage(mne.channels.make_standard_montage('standard_1020'), on_missing='ignore')
+            except Exception:
+                pass
 
             # Add Marker annotations
             if self.marker_events and len(self.timestamp_buffers[eeg_stream_name]) > 0:
