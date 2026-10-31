@@ -29,6 +29,7 @@ nav:
   - Guides:
       - Getting Started: guides/getting_started_bci_guide.md
       - LSL Network Setup: guides/lsl_network_setup.md
+      - Wearable Protocol (W2): guides/wearable_protocol.md
       - Assistive BCI Guide: guides/ASSISTIVE_BCI_GUIDE.md
       - Algorithm Toolbox: guides/algorithm_toolbox.md
       - BCI Signal Processing: guides/bci_signal_processing.md

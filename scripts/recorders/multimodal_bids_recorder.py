@@ -27,6 +27,7 @@ import os
 import sys
 import time
 import json
+import re
 import argparse
 import threading
 import numpy as np
@@ -256,40 +257,54 @@ class MultimodalBIDSRecorder:
         bids_sub_dir = os.path.join(self.bids_root, f"sub-{sub_clean}", f"ses-{ses_clean}")
         os.makedirs(bids_sub_dir, exist_ok=True)
 
-        for sname, item in self.inlets.items():
-            if item['type'] in ('IMU', 'PPG') or 'Smartwatch' in sname:
-                data = np.array(self.data_buffers[sname])
-                timestamps = np.array(self.timestamp_buffers[sname])
+        def wearable_category(sname, item):
+            if item['type'] == 'IMU' or 'imu' in sname.lower():
+                return 'motion'
+            if item['type'] == 'PPG' or 'ppg' in sname.lower():
+                return 'ppg'
+            return item['type'].lower() if item['type'] else 'ppg'
 
-                if len(data) > 0:
-                    if item['type'] == 'IMU' or 'imu' in sname.lower():
-                        category = 'motion'
-                    elif item['type'] == 'PPG' or 'ppg' in sname.lower():
-                        category = 'ppg'
-                    else:
-                        category = item['type'].lower() if item['type'] else 'ppg'
+        wearables = {sname: wearable_category(sname, item) for sname, item in self.inlets.items()
+                     if item['type'] in ('IMU', 'PPG') or 'Smartwatch' in sname}
+        category_counts = {}
+        for category in wearables.values():
+            category_counts[category] = category_counts.get(category, 0) + 1
 
-                    out_folder = os.path.join(bids_sub_dir, category)
-                    os.makedirs(out_folder, exist_ok=True)
+        for sname, category in wearables.items():
+            item = self.inlets[sname]
+            data = np.array(self.data_buffers[sname])
+            timestamps = np.array(self.timestamp_buffers[sname])
 
-                    df = pd.DataFrame(data)
-                    df.insert(0, 'timestamp_sec', timestamps)
+            if len(data) == 0:
+                continue
 
-                    tsv_filename = f"sub-{sub_clean}_ses-{ses_clean}_task-{task_name}_{category}.tsv"
-                    tsv_path = os.path.join(out_folder, tsv_filename)
-                    df.to_csv(tsv_path, sep='\t', index=False)
+            out_folder = os.path.join(bids_sub_dir, category)
+            os.makedirs(out_folder, exist_ok=True)
 
-                    # Export metadata JSON
-                    json_path = tsv_path.replace('.tsv', '.json')
-                    meta = {
-                        "SamplingFrequency": item['srate'],
-                        "StartTime": self.start_time_lsl,
-                        "Columns": ["timestamp_sec"] + [f"ch_{i+1}" for i in range(data.shape[1])]
-                    }
-                    with open(json_path, 'w') as f:
-                        json.dump(meta, f, indent=2)
+            df = pd.DataFrame(data)
+            df.insert(0, 'timestamp_sec', timestamps)
 
-                    print(f"[+] Exported Smartwatch {item['type']} BIDS data to: {tsv_path}")
+            tsv_filename = f"sub-{sub_clean}_ses-{ses_clean}_task-{task_name}_{category}.tsv"
+            if category_counts[category] > 1:
+                # Several wearables (e.g. IMU_L_wrist, IMU_R_ankle) would overwrite each other;
+                # BIDS names them apart with tracksys- for motion and recording- otherwise
+                entity = 'tracksys' if category == 'motion' else 'recording'
+                label = re.sub(r'[^A-Za-z0-9]', '', sname)
+                tsv_filename = f"sub-{sub_clean}_ses-{ses_clean}_task-{task_name}_{entity}-{label}_{category}.tsv"
+            tsv_path = os.path.join(out_folder, tsv_filename)
+            df.to_csv(tsv_path, sep='\t', index=False)
+
+            # Export metadata JSON
+            json_path = tsv_path.replace('.tsv', '.json')
+            meta = {
+                "SamplingFrequency": item['srate'],
+                "StartTime": self.start_time_lsl,
+                "Columns": ["timestamp_sec"] + [f"ch_{i+1}" for i in range(data.shape[1])]
+            }
+            with open(json_path, 'w') as f:
+                json.dump(meta, f, indent=2)
+
+            print(f"[+] Exported Smartwatch {item['type']} BIDS data to: {tsv_path}")
 
         print("=" * 70)
         print(f" Multimodal BIDS Export Complete! Root: {self.bids_root} ".center(70, "="))

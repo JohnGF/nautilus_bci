@@ -1,0 +1,237 @@
+"""
+Wearable wire protocol v2 (W2) and the per-device LSL fan-out
+==============================================================
+
+Any number of wearables (Wear OS watches, ESP32 boards, ...) send UDP packets to
+one bridge. Each device gets its own LSL outlets and its own clock mapping, so
+both wrists and both ankles can be recorded at once. Spec: docs/guides/wearable_protocol.md
+
+    W2|<device_id>|<location>|<seq>|<kind>[@<rate_hz>]|<t_ns>,<v1>,<v2>,...;<t_ns>,...
+
+This module has no socket code so it can be unit tested without a network.
+"""
+import re
+import time
+from collections import deque
+from dataclasses import dataclass, field
+
+from pylsl import StreamInfo, StreamOutlet, local_clock
+
+TAG = "W2"
+STATUS_KIND = "HB"  # heartbeat: sent, dropped, battery_pct; status only, not an LSL stream
+STALE_AFTER_S = 3.0
+SEQ_MOD = 2 ** 32
+SEQ_RESTART_GAP = 1000  # a jump this large means the device restarted, not that packets were lost
+
+_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+
+# kind -> (LSL type, [(label, unit)]). Kinds not listed get generic ch1..chN channels.
+KNOWN_KINDS = {
+    "IMU": ("IMU", [("Accel_X", "m/s2"), ("Accel_Y", "m/s2"), ("Accel_Z", "m/s2"),
+                    ("Gyro_X", "rad/s"), ("Gyro_Y", "rad/s"), ("Gyro_Z", "rad/s")]),
+    "HR": ("PPG", [("HeartRate", "bpm")]),
+    "TOUCH": ("Touch", [("Touch_X", "px"), ("Touch_Y", "px"), ("Touched", "bool")]),
+}
+
+
+class DeviceClockMapper:
+    """Maps device timestamps (seconds) onto LSL local_clock().
+
+    offset = arrival - device_time is transport delay plus the clock difference.
+    The minimum over a sliding window is the fastest packet seen, so it strips
+    network jitter; the window lets it follow slow clock drift between devices.
+    What remains is the constant minimum one-way latency, which a per-device
+    sync check (e.g. a tap seen in both EEG and IMU) can measure.
+    """
+
+    def __init__(self, window_s=10.0):
+        self.window_s = window_s
+        self.offsets = deque()  # (arrival, offset), offsets kept increasing
+
+    def update(self, device_s, arrival=None):
+        """Feed one (device time, arrival) pair; returns the current device-to-LSL offset."""
+        arrival = local_clock() if arrival is None else arrival
+        offset = arrival - device_s
+        # Monotonic deque: anything with a larger offset can never be the window minimum again
+        while self.offsets and self.offsets[-1][1] >= offset:
+            self.offsets.pop()
+        self.offsets.append((arrival, offset))
+        while arrival - self.offsets[0][0] > self.window_s:
+            self.offsets.popleft()
+        return self.offsets[0][1]
+
+    def map(self, device_s, arrival=None):
+        return device_s + self.update(device_s, arrival)
+
+
+@dataclass
+class Packet:
+    device_id: str
+    location: str
+    seq: int
+    kind: str
+    srate: float
+    samples: list  # [(device_time_s, [values])], oldest first
+
+
+def parse_packet(text):
+    """Parse one W2 packet. Returns None if it is not W2; raises ValueError if it is W2 but malformed."""
+    if not text.startswith(TAG + "|"):
+        return None
+    parts = text.strip().split("|")
+    if len(parts) != 6:
+        raise ValueError(f"expected 6 '|' fields, got {len(parts)}")
+    _, device_id, location, seq, kind, body = parts
+    if not _ID_RE.match(device_id) or not _ID_RE.match(location):
+        raise ValueError("device_id and location must be 1-32 chars of [A-Za-z0-9_-]")
+
+    srate = 0.0
+    if "@" in kind:
+        kind, rate = kind.split("@", 1)
+        srate = float(rate)
+    if not _ID_RE.match(kind):
+        raise ValueError(f"bad kind {kind!r}")
+
+    samples = []
+    width = None
+    for chunk in body.split(";"):
+        if not chunk:
+            continue
+        fields = chunk.split(",")
+        if width is None:
+            width = len(fields)
+        elif len(fields) != width:
+            raise ValueError("samples in one packet must have the same channel count")
+        samples.append((int(fields[0]) * 1e-9, [float(v) for v in fields[1:]]))
+    if not samples or width < 2:
+        raise ValueError("packet has no samples")
+    samples.sort(key=lambda s: s[0])
+    return Packet(device_id, location, int(seq), kind, srate, samples)
+
+
+def format_packet(device_id, location, seq, kind, samples, srate=0.0):
+    """Inverse of parse_packet; samples are [(t_ns, [values])]. Used by the mock and tests."""
+    head = f"{kind}@{srate:g}" if srate else kind
+    body = ";".join(",".join([str(t)] + [f"{v:g}" for v in values]) for t, values in samples)
+    return f"{TAG}|{device_id}|{location}|{seq % SEQ_MOD}|{head}|{body}"
+
+
+def make_outlet(name, stream_type, source_id, srate, channels, device_id, location):
+    info = StreamInfo(name=name, type=stream_type, channel_count=len(channels),
+                      nominal_srate=srate, channel_format="float32", source_id=source_id)
+    desc = info.desc()
+    desc.append_child_value("device_id", device_id)
+    desc.append_child_value("location", location)
+    desc.append_child_value("protocol", TAG)
+    chans = desc.append_child("channels")
+    for label, unit in channels:
+        ch = chans.append_child("channel")
+        ch.append_child_value("label", label)
+        ch.append_child_value("unit", unit)
+        ch.append_child_value("type", stream_type)
+    return StreamOutlet(info)
+
+
+@dataclass
+class Device:
+    device_id: str
+    location: str
+    stream_suffix: str
+    clock: DeviceClockMapper = field(default_factory=DeviceClockMapper)
+    outlets: dict = field(default_factory=dict)
+    last_seq: int = None
+    packets: int = 0
+    lost: int = 0
+    battery: int = None
+    last_seen: float = 0.0
+    samples: dict = field(default_factory=dict)  # kind -> count since last status
+
+
+class DeviceRegistry:
+    """Creates outlets per (device, kind) on first sight and keeps one clock mapper per device."""
+
+    def __init__(self, outlet_factory=make_outlet, log=print):
+        self.outlet_factory = outlet_factory
+        self.log = log
+        self.devices = {}
+        self._last_status = time.monotonic()
+
+    def handle(self, packet, arrival=None):
+        arrival = local_clock() if arrival is None else arrival
+        dev = self.devices.get(packet.device_id)
+        if dev is None:
+            dev = self._add_device(packet)
+        elif packet.location != dev.location:
+            self.log(f"[!] {dev.device_id} now reports location {packet.location}; "
+                     f"its streams keep the name {dev.stream_suffix}")
+
+        self._track_seq(dev, packet.seq)
+        dev.packets += 1
+        dev.last_seen = time.monotonic()
+
+        # Offset from the newest sample: the one with the least time sitting in the batch
+        offset = dev.clock.update(packet.samples[-1][0], arrival)
+
+        if packet.kind == STATUS_KIND:
+            values = packet.samples[-1][1]
+            if len(values) >= 3:
+                dev.battery = int(values[2])
+            return
+
+        outlet = dev.outlets.get(packet.kind)
+        if outlet is None:
+            outlet = self._add_outlet(dev, packet)
+        for t, values in packet.samples:
+            outlet.push_sample(values, t + offset)
+        dev.samples[packet.kind] = dev.samples.get(packet.kind, 0) + len(packet.samples)
+
+    def _add_device(self, packet):
+        taken = {d.location for d in self.devices.values()}
+        suffix = packet.location
+        if packet.location in taken:
+            # Two devices configured for the same body site; keep both, but name them apart
+            suffix = f"{packet.location}_{packet.device_id}"
+            self.log(f"[!] Location {packet.location} already in use; streams for "
+                     f"{packet.device_id} are named *_{suffix}")
+        dev = Device(packet.device_id, packet.location, suffix)
+        self.devices[packet.device_id] = dev
+        self.log(f"[+] New device {packet.device_id} at {packet.location}")
+        return dev
+
+    def _add_outlet(self, dev, packet):
+        n = len(packet.samples[0][1])
+        stream_type, channels = KNOWN_KINDS.get(packet.kind, (packet.kind, []))
+        if len(channels) != n:
+            channels = [(f"ch{i + 1}", "") for i in range(n)]
+        name = f"{packet.kind}_{dev.stream_suffix}"
+        outlet = self.outlet_factory(name, stream_type, f"{dev.device_id}_{packet.kind}",
+                                     packet.srate, channels, dev.device_id, dev.location)
+        dev.outlets[packet.kind] = outlet
+        self.log(f"    LSL outlet '{name}' ({stream_type}, {n} ch, {packet.srate:g} Hz)")
+        return outlet
+
+    @staticmethod
+    def _track_seq(dev, seq):
+        if dev.last_seq is not None:
+            gap = (seq - dev.last_seq - 1) % SEQ_MOD
+            if 0 < gap < SEQ_RESTART_GAP:
+                dev.lost += gap
+        dev.last_seq = seq
+
+    def status_lines(self):
+        """One line per device with rates since the previous call; resets the rate counters."""
+        now = time.monotonic()
+        elapsed = max(now - self._last_status, 1e-6)
+        self._last_status = now
+        lines = []
+        for dev in sorted(self.devices.values(), key=lambda d: d.location):
+            rates = " ".join(f"{k} {c / elapsed:5.1f}Hz" for k, c in sorted(dev.samples.items()))
+            dev.samples = {}
+            total = dev.packets + dev.lost
+            loss = 100.0 * dev.lost / total if total else 0.0
+            batt = f"{dev.battery}%" if dev.battery is not None else "?"
+            age = now - dev.last_seen
+            state = "STALE" if age > STALE_AFTER_S else "ok"
+            lines.append(f"  {dev.location:<10} {dev.device_id:<14} {state:<5} {rates:<28} "
+                         f"loss {loss:4.1f}%  batt {batt:>4}  seen {age:4.1f}s ago")
+        return lines

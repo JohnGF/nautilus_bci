@@ -22,6 +22,7 @@ Below is a table of the primary data sources, verified against the current codeb
 | g.Nautilus | `gNautilus_EEG` or `gNautilus_fNIRS` | `EEG` or `fNIRS` | Varies (e.g. 32) | Configurable | `scripts/bridges/gds_to_lsl.py` |
 | g.Nautilus via gpype | Parameterized | Parameterized | Varies | Varies | `scripts/bridges/gpype_to_lsl.py` |
 | Galaxy Watch | `Smartwatch_IMU`, `Smartwatch_PPG` | `IMU`, `PPG` | 6 (IMU), 2 (PPG) | 50 Hz (IMU), 1 Hz (PPG) | `integrations/galaxy_watch_lsl` -> `scripts/bridges/smartwatch_lsl_bridge.py` |
+| Wearables (W2: watches, ESP32, any count) | `IMU_<location>`, `HR_<location>`, `TOUCH_<location>` | `IMU`, `PPG`, `Touch` | 6, 1, 3 | sender-declared (e.g. 50 Hz IMU) | W2 UDP -> `scripts/bridges/smartwatch_lsl_bridge.py`, see [Wearable Protocol](guides/wearable_protocol.md) |
 | Kinect v2 head pose & gaze | `KinectGaze` | `Gaze` | 10 (screen gaze & head pointer px, head yaw/pitch/roll, distance, blinks) | per processed frame, ~15 Hz (nominal 30) | [kinect_eye_tracker](https://github.com/JohnGF/kinect_eye_tracker) (`tracker.py --lsl`) |
 | Artinis fNIRS | `Artinis_fNIRS` | `fNIRS` | Configurable | Configurable | `scripts/bridges/artinis_to_lsl.py` |
 | Task Markers | Varies | `Markers` | 1 | Irregular (0) | `scripts/tasks/common/base_task.py` |
@@ -29,7 +30,7 @@ Below is a table of the primary data sources, verified against the current codeb
 
 *Note: `KinectGaze` is a concept-validation source: head pose is reliable, screen gaze is coarse (about 6° median). See the [kinect_eye_tracker results](https://github.com/JohnGF/kinect_eye_tracker#results); use a dedicated eye tracker where precise gaze matters.*
 
-*Note: The Galaxy Watch smartwatch bridge specifically maps the watch's sensor timestamp onto LSL time (`DeviceClockMapper`), smoothing out jitter from UDP transmission.*
+*Note: The smartwatch bridge maps each device's sensor timestamp onto LSL time with its own `DeviceClockMapper`, smoothing out jitter from UDP transmission.*
 
 ## Adding a New Device
 
