@@ -6,7 +6,7 @@ This script receives wearable sensor data (PPG/HeartRate and 6-DOF IMU)
 over WebSockets or UDP and streams them live into LSL.
 
 Supported inputs:
-1. W2 multi-device UDP packets (galaxy_watch_lsl >= 1.2, ESP32 boards, ...):
+1. W2 multi-device UDP packets (https://github.com/JohnGF/galaxy_watch_lsl >= 1.2, ESP32 boards, ...):
    any number of devices, one set of LSL streams per device, named by body
    location (e.g. 'IMU_L_wrist', 'IMU_R_ankle'). See docs/guides/wearable_protocol.md
 2. Legacy single-watch UDP CSV packets -> 'Smartwatch_IMU' / 'Smartwatch_PPG'
