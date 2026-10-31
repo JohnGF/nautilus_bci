@@ -1,6 +1,3 @@
-[submodule "integrations/galaxy_watch_lsl"]
-    path = integrations/galaxy_watch_lsl
-    url = https://github.com/JohnGF/galaxy_watch_lsl
 [submodule "games/fnf_prot"]
 	path = games/fnf_prot
 	url = https://github.com/gabrielbrilha/fnf_prot

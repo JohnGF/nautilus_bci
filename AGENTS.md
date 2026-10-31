@@ -9,7 +9,7 @@
 | `results/` | Generated analysis outputs (figures, JSON reports). Never hand-edit; regenerable |
 | `docs/` | `guides/` (onboarding), `science-notes/` (findings), `vendor-manuals/` (g.tec PDFs, reference only) |
 | `games/` | Tower Defense + FNF game tasks. `tower-defense-bci/` and `fnf_prot/` are **git submodules** (separate repos); `tower-defense/` is built Godot binaries |
-| `integrations/` | Bridges to external systems (`external_game_engines/`, `galaxy_watch_lsl` submodule) |
+| `integrations/` | Bridges to external systems (`external_game_engines/`) |
 | `models/` | Pretrained weights + `assistive_inferencer.py` |
 
 ## Running things
@@ -42,7 +42,8 @@
 
 ## Submodule rules
 
-- `games/tower-defense-bci`, `games/fnf_prot`, `integrations/galaxy_watch_lsl` are submodules. **Do not edit files inside them** — changes belong in their own repos.
+- `games/tower-defense-bci` and `games/fnf_prot` are submodules. **Do not edit files inside them** — changes belong in their own repos.
+- Device apps live in their own repos and are not vendored here: the watch app is [galaxy_watch_lsl](https://github.com/JohnGF/galaxy_watch_lsl). The whole platform is assembled in [lupin-platform](https://github.com/JohnGF/lupin-platform).
 - Moving a submodule requires updating `.gitmodules`, `.git/config` (`git config --rename-section`), the `.git` gitdir pointer, and `core.worktree` in `.git/modules/<name>/config`. If in doubt, don't move them.
 
 ## LLM context tooling (laya-files)
