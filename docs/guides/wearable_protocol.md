@@ -33,6 +33,8 @@ W2|<device_id>|<location>|<seq>|<kind>[@<rate_hz>]|<t_ns>,<v1>,<v2>,...;<t_ns>,<
 | `TOUCH` | x, y (px), touched (0/1) | `TOUCH_<location>` | `Touch` |
 | `HB` | sent, dropped, battery % | none, status only | — |
 | `ECHO` | ping id, turnaround µs (see [Timing](#echo)) | `ClockSync_<location>` (raw exchanges) | `ClockSync` |
+
+Every data stream also gets a last channel, `DeviceTime`: the sample's raw device clock in seconds. Data streams are `double64` so it keeps full precision. Consumers that read the first N channels by position are unaffected.
 | anything else | `ch1..chN` | `<kind>_<location>` | `<kind>` |
 
 Send `HB` once a second. It drives the bridge's status table (battery level, stale-device warning) and keeps the clock mapping fresh when the IMU is idle.
@@ -163,4 +165,27 @@ The bridge still accepts the old single-watch CSV packet (`accX,...,hr,touchX,to
 
 ## Recording
 
-`multimodal_bids_recorder.py` writes one TSV per wearable stream. If only one stream of a kind is present, the filename is unchanged (`..._motion.tsv`). With several, each file gets a BIDS label from its stream name, e.g. `..._tracksys-IMULwrist_motion.tsv` and `..._recording-HRLwrist_ppg.tsv`.
+`multimodal_bids_recorder.py` exports, per session:
+
+| Path | Content |
+|---|---|
+| `motion/*_motion.tsv`, `ppg/*_ppg.tsv`, `touch/*_touch.tsv` | `timestamp_sec`, then the data channels by label (`Accel_X`, …). Same layout the analysis scripts read; `DeviceTime` is never in here. |
+| `*_motion.json`, `*_ppg.json`, … | Sampling rate, column units, stream name, LSL `source_id`, `DeviceID`, `TrackedPointLocation`, clock-sync method |
+| `motion/*_channels.tsv` | BIDS motion channels: `name`, `component` (x/y/z), `type` (ACCEL/GYRO), `tracked_point`, `units` |
+| `sourcedata/…/<datatype>/*_devicetime.tsv` | Live `timestamp_sec` and the raw `device_time_s` of every sample |
+| `sourcedata/…/clocksync/*_clocksync.tsv` | Ping/echo exchanges; `t1`/`t4` on the `timestamp_sec` axis, `t2`/`t3` device clock |
+
+With one stream of a kind, the filename is unchanged (`..._motion.tsv`). With several, each file gets a BIDS label from its stream name, e.g. `..._tracksys-IMULwrist_motion.tsv` and `..._recording-HRLwrist_ppg.tsv`.
+
+### Offline clock refit
+
+The bridge's live fit only knows the exchanges seen so far. After the session, `refit_wearable_clocks.py` refits each device using exchanges from both before and after every sample: the fastest exchange per burst, a local offset + drift line over ±150 s, and linear interpolation between bursts.
+
+```bash
+uv run python recorders/refit_wearable_clocks.py bids_dataset_multimodal          # report
+uv run python recorders/refit_wearable_clocks.py bids_dataset_multimodal --apply  # rewrite timestamp_sec
+```
+
+The report gives, per stream, the number of bursts, the device drift (positive = device clock runs fast), the median error bound and how far the refit moves the timestamps. `--apply` rewrites `timestamp_sec` and adds a `ClockRefit` block to the JSON. The live timestamps stay in the devicetime file, so applying again gives the same result. In a simulated 10-minute session (40 ppm drift, 1–15 ms of jitter per leg, live timestamps 8 ms off before the first burst), every refit sample lands within 2 ms of the true time.
+
+The recorder only receives exchanges from after it connects, so start it before the wearables (or at least before the session's first stomp/clap). A session needs at least one burst, which is every 10 s; longer sessions give the drift fit more to work with.

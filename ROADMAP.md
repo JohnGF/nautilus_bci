@@ -79,5 +79,5 @@ LSL aligns clocks between machines that run liblsl, but not the hop from a devic
   - **Muse** (`muse-lsl`): check how muselsl builds timestamps from BLE packets, and whether its packet sample index can drive the regression.
   - **Hikmicro thermal** (`hikmicro-lsl`): synthetic `start + i·delay` timestamps drift against the real frame clock; use camera frame times if the SDK exposes them.
 - [ ] **Shared `device_clock` package** (`DeviceClockMapper`, `DeviceSync`, counter regression) that every device repo imports, as part of the stream contract.
-- [ ] **Record the sync data**: export `ClockSync_*` streams with each BIDS session (`sourcedata/`), plus an offline refit tool.
+- [x] **Record the sync data** (`recorders/multimodal_bids_recorder.py`, `recorders/refit_wearable_clocks.py`): `ClockSync_*` exchanges and each sample's raw device clock go to `sourcedata/`; the refit tool redoes the clock fit offline over the whole session.
 - [ ] **Automated sync check**: detect a stomp/clap at session start and end in every stream (EEG, IMUs, fNIRS) and report the cross-stream offset per session.
