@@ -604,9 +604,10 @@ def main():
         time.sleep(args.duration)
     except KeyboardInterrupt:
         pass
-    # A second Ctrl+C (or a launcher re-sending SIGINT) must not abort the export and lose the session
+    # A second Ctrl+C (or a launcher re-sending SIGINT/SIGTERM) must not abort the export and lose the session
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    print("\n[*] Stopping; exporting (further Ctrl+C is ignored until the export finishes).")
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    print("\n[*] Stopping; exporting (signals ignored until the export finishes).", flush=True)
 
     recorder.stop_and_export_bids(subject_id=args.sub, session_id=args.ses, task_name=args.task)
 

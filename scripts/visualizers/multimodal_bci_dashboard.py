@@ -34,10 +34,17 @@ pg.setConfigOption('foreground', '#ECF0F1')
 pg.setConfigOptions(antialias=True)
 
 try:
-    from pylsl import StreamInlet, resolve_streams
+    from pylsl import StreamInlet, resolve_streams, resolve_byprop, ContinuousResolver
     HAS_LSL = True
 except ImportError:
     HAS_LSL = False
+
+GPYPE_32 = [
+    "Fp1", "Fp2", "AF3", "AF4", "F7", "F3", "Fz", "F4", "F8",
+    "FC5", "FC1", "FC2", "FC6", "T7", "C3", "Cz", "C4", "T8",
+    "CP5", "CP1", "CP2", "CP6", "P7", "P3", "Pz", "P4", "P8",
+    "PO7", "PO3", "PO4", "PO8", "Oz",
+]
 
 from visualizers.eeg_headmap_quality_visualizer import HeadMapCanvas, ELECTRODE_POSITIONS_1020
 from analysis.spatial_filters import apply_spatial_filter
@@ -71,6 +78,7 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
         self.eeg_inlet = None
         self.imu_inlet = None
         self.ppg_inlet = None
+        self.resolver = ContinuousResolver(forget_after=4.0) if HAS_LSL else None
 
         # Data Buffers
         self.fs_eeg = 250.0
@@ -410,28 +418,90 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
 
     # BIDS recording methods removed (managed by standalone recorder GUI)
 
+    def _setup_eeg_inlet(self, inlet):
+        try:
+            self.eeg_inlet = inlet
+            info = inlet.info()
+            srate = info.nominal_srate()
+            if srate > 0:
+                self.fs_eeg = float(srate)
+                self.buf_samples_eeg = int(self.fs_eeg * 3.0)
+                self.t_vec_eeg = np.linspace(-3.0, 0, self.buf_samples_eeg)
+                self.update_temporal_filter()
+
+            num_ch = info.channel_count()
+            ch_names = []
+            ch = info.desc().child("channels").child("channel")
+            for i in range(num_ch):
+                if ch.empty():
+                    ch_names.append(f"CH{i+1}")
+                else:
+                    lbl = ch.child_value("label")
+                    ch_names.append(lbl if lbl else f"CH{i+1}")
+                    ch = ch.next_sibling()
+
+            # Map generic numeric names (e.g. 'CZ', '2', '3'...) to standard GPYPE_32
+            has_1020 = any(n.upper() in ["C3", "C4", "P3", "P4", "OZ", "FP1", "FC1"] for n in ch_names)
+            if not has_1020 and num_ch >= 32:
+                mapped = list(GPYPE_32)
+                if num_ch > 32:
+                    mapped.extend(ch_names[32:])
+                ch_names = mapped
+
+            self.eeg_ch_names = ch_names
+            self.eeg_buffer = np.zeros((self.buf_samples_eeg, num_ch))
+
+            self._rebuild_quality_table()
+            print(f"[+] Multimodal Dashboard connected to EEG: {info.name()} ({num_ch} ch @ {self.fs_eeg:.0f} Hz)")
+        except Exception as e:
+            print(f"[-] Error setting up EEG inlet: {e}")
+
+    def _rebuild_quality_table(self):
+        eeg_channels = [ch for ch in self.eeg_ch_names if ch.upper() not in ['BATTERY', 'STATUS', 'AUX']]
+        self.table_quality.setRowCount(len(eeg_channels))
+        for i, ch_name in enumerate(eeg_channels):
+            item_name = QtWidgets.QTableWidgetItem(ch_name)
+            item_val = QtWidgets.QTableWidgetItem("std: 0.0uV | p-p: 0.0uV")
+            item_status = QtWidgets.QTableWidgetItem("POSITIONING...")
+            item_status.setForeground(QtGui.QColor("#F1C40F"))
+            self.table_quality.setItem(i, 0, item_name)
+            self.table_quality.setItem(i, 1, item_val)
+            self.table_quality.setItem(i, 2, item_status)
+
     def discover_lsl_streams(self):
         if not HAS_LSL:
             return
 
-        streams = resolve_streams(wait_time=0.2)
+        # 1. Background resolver results (instantaneous)
+        streams = list(self.resolver.results()) if self.resolver else []
+
+        # 2. Targeted fallback for EEG if not yet found
+        if self.eeg_inlet is None and not any(s.type().upper() == 'EEG' or 'GNAUTILUS' in s.name().upper() for s in streams):
+            try:
+                targeted = resolve_byprop('type', 'EEG', timeout=0.1)
+                if targeted:
+                    streams.extend(targeted)
+            except Exception:
+                pass
+
         for s in streams:
             stype = s.type().upper()
             sname = s.name()
 
-            if (stype == 'EEG' or 'gNautilus' in sname) and self.eeg_inlet is None:
+            if (stype == 'EEG' or 'GNAUTILUS' in sname.upper()) and self.eeg_inlet is None:
                 try:
-                    self.eeg_inlet = StreamInlet(s, max_buflen=360)
-                except Exception:
-                    pass
+                    inlet = StreamInlet(s, max_buflen=360)
+                    self._setup_eeg_inlet(inlet)
+                except Exception as e:
+                    print(f"[-] Failed to bind EEG inlet: {e}")
 
-            if (stype == 'IMU' or 'Smartwatch_IMU' in sname) and self.imu_inlet is None:
+            if (stype in ('IMU', 'MOTION') or 'SMARTWATCH_IMU' in sname.upper() or 'IMU_' in sname) and self.imu_inlet is None:
                 try:
                     self.imu_inlet = StreamInlet(s, max_buflen=360)
                 except Exception:
                     pass
 
-            if (stype == 'PPG' or 'Smartwatch_PPG' in sname) and self.ppg_inlet is None:
+            if (stype in ('PPG', 'HEARTRATE') or 'SMARTWATCH_PPG' in sname.upper() or 'HR_' in sname) and self.ppg_inlet is None:
                 try:
                     self.ppg_inlet = StreamInlet(s, max_buflen=360)
                 except Exception:
@@ -455,16 +525,20 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
         # 1. Poll EEG
         if self.eeg_inlet:
             try:
-                samples, _ = self.eeg_inlet.pull_chunk(max_samples=250)
+                samples, _ = self.eeg_inlet.pull_chunk(max_samples=1024, timeout=0.0)
                 if samples:
                     chunk = np.array(samples, dtype=np.float64)
-                    if np.max(np.abs(chunk)) < 0.01:
-                        chunk *= 1e6  # Volts to uV
-                    n = len(chunk)
-                    if chunk.shape[1] == self.eeg_buffer.shape[1]:
+                    if chunk.ndim == 2 and chunk.size > 0:
+                        if np.max(np.abs(chunk)) < 0.01:
+                            chunk *= 1e6  # Volts to uV
+                        n = len(chunk)
+                        if chunk.shape[1] != self.eeg_buffer.shape[1]:
+                            # Dynamically resize buffer to match incoming channel count
+                            self.eeg_buffer = np.zeros((self.buf_samples_eeg, chunk.shape[1]))
                         self.eeg_buffer = np.roll(self.eeg_buffer, -n, axis=0)
                         self.eeg_buffer[-n:, :] = chunk
-            except Exception:
+            except Exception as e:
+                print(f"[!] EEG pull error: {e}")
                 self.eeg_inlet = None
 
         # 2. Poll IMU
@@ -532,7 +606,10 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
         # - Noise / high motion artifact: std > 180 uV for dry, 90 uV for wet
         noise_std_thresh = 180.0 if is_dry else 90.0
 
-        for i, name in enumerate(self.eeg_ch_names[:-1]):
+        eeg_channels = [ch for ch in self.eeg_ch_names if ch.upper() not in ['BATTERY', 'STATUS', 'AUX']]
+        for i, name in enumerate(eeg_channels):
+            if i >= len(stds):
+                break
             std_val = stds[i]
             ptp_val = ranges[i]
 
@@ -565,7 +642,7 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
 
         self.headmap_canvas.update_channel_status(channel_stds, channel_maxs, status_colors=channel_status_colors)
         cap_name = "Dry (SAHARA)" if is_dry else "Wet"
-        self.lbl_headmap_summary.setText(f"Active Channels ({cap_name}): {good_count}/32 Positioned ({flat_count} Disconnected)")
+        self.lbl_headmap_summary.setText(f"Active Channels ({cap_name}): {good_count}/{len(eeg_channels)} Positioned ({flat_count} Disconnected)")
 
     def update_temporal_filter(self):
         preset = self.combo_temp_filter.currentData()
@@ -592,18 +669,25 @@ class MultimodalBCIDashboard(QtWidgets.QMainWindow):
         spacing = max(20.0, np.std(filt) * 3.5)
         offsets = [0, spacing, spacing * 2, spacing * 3, spacing * 4]
 
-        for i, name in enumerate(self.target_wave_channels):
-            if name in self.eeg_ch_names:
-                ch_idx = self.eeg_ch_names.index(name)
-                y = filt[:, ch_idx] + offsets[i]
+        # Case-insensitive mapping for target wave channels (e.g. 'Cz', 'C3', 'C4', 'O1', 'O2')
+        ch_upper_map = {name.upper(): idx for idx, name in enumerate(self.eeg_ch_names)}
+
+        for i, target_name in enumerate(self.target_wave_channels):
+            tgt_up = target_name.upper()
+            if tgt_up in ch_upper_map:
+                ch_idx = ch_upper_map[tgt_up]
+                if ch_idx < filt.shape[1]:
+                    y = filt[:, ch_idx] + offsets[i]
+                    self.wave_curves[i].setData(self.t_vec_eeg, y)
+            elif i < filt.shape[1]:
+                y = filt[:, i] + offsets[i]
                 self.wave_curves[i].setData(self.t_vec_eeg, y)
 
         self.plot_waves.setYRange(-spacing * 0.8, spacing * 4.8)
 
         if len(filt) >= 64:
-            # Multi-channel average across target channels (Cz, C3, C4, O1, O2)
-            target_indices = [self.eeg_ch_names.index(n) for n in self.target_wave_channels if n in self.eeg_ch_names]
-            roi_data = filt[:, target_indices] if target_indices else filt[:, :5]
+            target_indices = [ch_upper_map[n.upper()] for n in self.target_wave_channels if n.upper() in ch_upper_map and ch_upper_map[n.upper()] < filt.shape[1]]
+            roi_data = filt[:, target_indices] if target_indices else filt[:, :min(5, filt.shape[1])]
 
             fft_vals = np.abs(np.fft.rfft(roi_data, axis=0))
             freqs = np.fft.rfftfreq(len(filt), 1.0 / self.fs_eeg)
