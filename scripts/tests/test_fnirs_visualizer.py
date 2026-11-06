@@ -368,7 +368,7 @@ def test_table_shows_measurements_and_keeps_unknowns_blank(window):
     assert float(window.quality_table.item(0, pulse_col).text()) >= fv.PULSE_CLEAR_STRENGTH
     assert window.quality_table.item(0, start_col).text() == "--"
     assert window.quality_table.item(7, note_col).text() == "pulse unclear"
-    assert "bpm" in window.lbl_heart.text() and "5 of 8" in window.lbl_heart.text()
+    assert window.lbl_heart.text().startswith("Pulse peak:") and "5 channels" in window.lbl_heart.text()
     assert window.headmap_widget.channel_sci[0] > 0.9 > window.headmap_widget.channel_sci[7]
 
 
@@ -413,6 +413,83 @@ def test_startup_levels_keep_each_columns_peak_and_mark_unseen_ones_unknown():
     assert first[6] == pytest.approx(1.8) and np.isnan(first[7]) and np.isnan(second[7])
     assert fv.channel_notes(first, second, np.full(8, np.nan))[6] == "low light at start"
     assert fv.channel_notes(first, second, np.full(8, np.nan))[7] == ""
+
+
+def two_rhythms(strong_hz, weak_hz, channels=(0, 1, 2, 3), n=1000, weak_ratio=0.5):
+    rng = np.random.default_rng(21)
+    t = np.arange(n) / SRATE
+    wave = 0.004 * np.sin(2 * np.pi * strong_hz * t) + 0.004 * weak_ratio * np.sin(2 * np.pi * weak_hz * t)
+    first, second = rng.normal(0, 0.001, (n, 8)), rng.normal(0, 0.001, (n, 8))
+    for ch in channels:
+        first[:, ch] += wave
+        second[:, ch] += 0.8 * wave
+    return first, second
+
+
+def test_two_separate_rhythms_are_both_reported(cardiac_sos):
+    pulse = fv.pulse_metrics(*two_rhythms(1.2, 1.7), SRATE, cardiac_sos)
+    assert pulse.heart_hz == pytest.approx(1.2, abs=0.1)
+    assert pulse.other_hz == pytest.approx(1.7, abs=0.1)
+    text = fv.pulse_peak_text(pulse)
+    assert "Pulse peak: 72 bpm" in text and "Also: " in text and "Heart" not in text
+
+
+def test_a_harmonic_is_not_reported_as_the_rate(cardiac_sos):
+    pulse = fv.pulse_metrics(*two_rhythms(2.4, 1.2, weak_ratio=0.6), SRATE, cardiac_sos)
+    assert pulse.heart_hz == pytest.approx(1.2, abs=0.1)
+    assert np.isnan(pulse.other_hz)
+
+
+def test_a_single_rhythm_has_no_also_line(cardiac_sos):
+    pulse = fv.pulse_metrics(*two_channel_pulse(0.003), SRATE, cardiac_sos)
+    assert np.isnan(pulse.other_hz) and "Also" not in fv.pulse_peak_text(pulse)
+
+
+def test_no_rhythm_reads_none_found():
+    empty = fv.PulseMetrics(np.nan, 0, None, None, None, np.nan, 0)
+    assert fv.pulse_peak_text(empty) == "Pulse peak: none found"
+
+
+class FakeWatchInlet:
+    def __init__(self):
+        self.pending = []
+
+    def pull_chunk(self, timeout=0.0):
+        samples, self.pending = self.pending, []
+        return samples, [0.0] * len(samples)
+
+
+def test_watch_stream_names():
+    assert fv.is_watch_heart_rate_stream("HR_L_wrist", "PPG")
+    assert fv.is_watch_heart_rate_stream("Smartwatch_PPG", "PPG")
+    assert not fv.is_watch_heart_rate_stream("IMU_L_wrist", "IMU")
+    assert not fv.is_watch_heart_rate_stream("Artinis_fNIRS", "fNIRS")
+
+
+def test_watch_averages_recent_readings_and_skips_zeros():
+    watch = fv.WatchHeartRate()
+    assert watch.text() is None
+    inlet = FakeWatchInlet()
+    watch.attach(inlet, "HR_L_wrist", 100.0)
+    assert watch.text() == "Watch: waiting for a reading"
+    inlet.pending = [[80.0, 1.0], [0.0, 2.0], [90.0, 3.0]]
+    watch.poll(101.0)
+    assert watch.text() == "Watch: 85 bpm  (HR_L_wrist)"
+    inlet.pending = [[100.0, 4.0]]
+    watch.poll(101.0 + fv.WATCH_AVERAGE_SEC + 1.0)
+    assert watch.text() == "Watch: 100 bpm  (HR_L_wrist)"
+
+
+def test_watch_label_hides_when_the_stream_goes_quiet(window):
+    inlet = FakeWatchInlet()
+    inlet.pending = [[88.0, 1.0]]
+    window.watch.next_scan = float("inf")  # No real LSL scan during the test
+    window.watch.attach(inlet, "HR_L_wrist", fv.time.monotonic())
+    window.update_watch()
+    assert window.lbl_watch.text() == "Watch: 88 bpm  (HR_L_wrist)" and not window.lbl_watch.isHidden()
+    window.watch.last_seen -= fv.WatchHeartRate.GONE_AFTER_SEC + 1.0
+    window.update_watch()
+    assert window.lbl_watch.isHidden()
 
 
 def test_no_startup_levels_when_the_first_frame_is_already_baselined():

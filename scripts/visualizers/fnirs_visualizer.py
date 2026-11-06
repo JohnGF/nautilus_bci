@@ -14,7 +14,7 @@ import os
 import time
 import math
 import re
-from collections import namedtuple
+from collections import deque, namedtuple
 
 import numpy as np
 
@@ -30,7 +30,7 @@ import pyqtgraph as pg
 
 # Try importing pylsl
 try:
-    from pylsl import StreamInlet, resolve_streams
+    from pylsl import ContinuousResolver, StreamInlet, resolve_streams
     HAS_LSL = True
 except ImportError:
     HAS_LSL = False
@@ -180,20 +180,21 @@ def scalp_coupling_index(first, second, sos_cardiac, min_samples):
     return sci
 
 
-PulseMetrics = namedtuple("PulseMetrics", "heart_hz channels_with_pulse own_hz strength size")
+PulseMetrics = namedtuple("PulseMetrics", "heart_hz channels_with_pulse own_hz strength size other_hz other_channels")
 
 
 def pulse_metrics(first, second, srate, sos_cardiac, min_seconds=16.0):
-    """Look for a heartbeat shared across channels. All values are NaN when it can't be measured.
+    """Look for rhythms shared across channels in the cardiac band. All values are NaN when they can't be measured.
 
-    strength is the spectral peak at the shared heart rate over the cardiac band's trend. Unlike
+    heart_hz is the strongest, and other_hz the next one that isn't its harmonic. Either may not be the heart.
+    strength is the spectral peak at heart_hz over the cardiac band's trend. Unlike
     the scalp coupling index it stays low for noise that is merely common to both wavelengths.
     Each pod also gets its own vote, so a pod with no light can't hide the pulse on the other one.
     """
     n_channels = first.shape[1]
     nan = np.full(n_channels, np.nan)
     if not HAS_SCIPY or first.shape[0] < srate * min_seconds or srate < 5.0:
-        return PulseMetrics(np.nan, 0, nan, nan, nan)
+        return PulseMetrics(np.nan, 0, nan, nan, nan, np.nan, 0)
     nperseg = min(first.shape[0], int(srate * 10))
     freqs, power_first = signal.welch(first, srate, nperseg=nperseg, axis=0, detrend="linear")
     _, power_second = signal.welch(second, srate, nperseg=nperseg, axis=0, detrend="linear")
@@ -208,30 +209,138 @@ def pulse_metrics(first, second, srate, sos_cardiac, min_seconds=16.0):
     def near(index):
         return np.abs(band_freqs - band_freqs[index]) <= 0.15
 
-    # Channels vote with their whole spectrum, so one noisy channel can't pick the heart rate
+    def passes(index, channels, bins=None):
+        peaks = np.max(ratio[near(index) if bins is None else bins][:, channels], axis=0)
+        return (np.sum(peaks >= PULSE_CLEAR_STRENGTH) >= PULSE_MIN_CHANNELS
+                or np.sum(peaks >= PULSE_STRONG_STRENGTH) >= PULSE_STRONG_CHANNELS)
+
+    # Channels vote with their whole spectrum, so one noisy channel can't pick the rate
     votes = np.log(np.maximum(ratio, 1.0))
-    head_vote = np.sum(votes, axis=1)
-    consensus, confirmed, best_vote = int(np.argmax(head_vote)), False, -np.inf
     groups = [np.arange(n_channels)]
     if n_channels == 8:
         groups += [np.arange(0, 4), np.arange(4, 8)]
-    for channels in groups:
-        vote = np.mean(votes[:, channels], axis=1)  # Per channel, or the whole head always outvotes a pod
-        candidate = int(np.argmax(vote))
-        if candidate == 0:
-            continue  # Spectrum still falling at the band edge: drift or movement, not a peak
-        peaks = np.max(ratio[near(candidate)][:, channels], axis=0)
-        clear = np.sum(peaks >= PULSE_CLEAR_STRENGTH) >= PULSE_MIN_CHANNELS
-        strong = np.sum(peaks >= PULSE_STRONG_STRENGTH) >= PULSE_STRONG_CHANNELS
-        if (clear or strong) and vote[candidate] > best_vote:
-            consensus, confirmed, best_vote = candidate, True, vote[candidate]
 
+    def find_rhythm(blocked, separate=False):
+        """Strongest rhythm that passes on any group of channels, as a band index, or None.
+
+        separate is for a further rhythm beside the main one. A strong peak spreads into nearby bins, so
+        this one must be a local peak of its own and strong in its own bin.
+        """
+        best, best_vote = None, -np.inf
+        for channels in groups:
+            vote = np.mean(votes[:, channels], axis=1)  # Per channel, or the whole head always outvotes a pod
+            if separate:
+                is_peak = np.zeros(vote.size, dtype=bool)
+                is_peak[1:-1] = (vote[1:-1] > vote[:-2]) & (vote[1:-1] >= vote[2:])
+                vote[~is_peak] = -np.inf
+            vote[blocked] = -np.inf
+            vote[-1] = -np.inf  # The slope fit can lift the top edge, which isn't a peak either
+            candidate = int(np.argmax(vote))
+            if candidate == 0:
+                continue  # Spectrum still falling at the band edge: drift or movement, not a peak
+            half = np.flatnonzero(np.abs(band_freqs - band_freqs[candidate] / 2.0) <= 0.1)
+            half = half[half > 0]
+            if half.size:
+                # A rhythm also present at half the rate is that rhythm's harmonic
+                fundamental = int(half[np.argmax(vote[half])])
+                if vote[fundamental] > -np.inf and passes(fundamental, channels):
+                    candidate = fundamental
+            own_bin = np.arange(band_freqs.size) == candidate if separate else None
+            if passes(candidate, channels, own_bin) and vote[candidate] > best_vote:
+                best, best_vote = candidate, vote[candidate]
+        return best
+
+    no_bins = np.zeros(band_freqs.size, dtype=bool)
+    main = find_rhythm(no_bins)
+    # Without a confirmed rhythm, still show each channel's peak at the rate most channels favour
+    consensus = main if main is not None else int(np.argmax(np.sum(votes, axis=1)))
     strength = np.max(ratio[near(consensus)], axis=0)
-    heart_hz = float(band_freqs[consensus]) if confirmed else np.nan
-    channels_with_pulse = int(np.sum(strength >= PULSE_CLEAR_STRENGTH)) if confirmed else 0
+    heart_hz = float(band_freqs[consensus]) if main is not None else np.nan
+    channels_with_pulse = int(np.sum(strength >= PULSE_CLEAR_STRENGTH)) if main is not None else 0
+
+    other_hz, other_channels = np.nan, 0
+    if main is not None:
+        related = near(main)
+        for factor in (2.0, 0.5):
+            related |= np.abs(band_freqs - band_freqs[main] * factor) <= 0.15
+        other = find_rhythm(related, separate=True)
+        if other is not None:
+            other_hz = float(band_freqs[other])
+            other_channels = int(np.sum(ratio[other] >= PULSE_CLEAR_STRENGTH))
+
     own_hz = band_freqs[np.argmax(ratio, axis=0)]
     size = zero_phase_filter(sos_cardiac, first).std(axis=0) if sos_cardiac is not None else nan
-    return PulseMetrics(heart_hz, channels_with_pulse, own_hz, strength, size)
+    return PulseMetrics(heart_hz, channels_with_pulse, own_hz, strength, size, other_hz, other_channels)
+
+
+def pulse_peak_text(pulse):
+    """Rhythms in the cardiac band. Not called a heart rate: a watch check showed the strongest one can be something else."""
+    if np.isnan(pulse.heart_hz):
+        return "Pulse peak: none found"
+    text = f"Pulse peak: {pulse.heart_hz * 60:.0f} bpm  ({pulse.channels_with_pulse} channels)"
+    if not np.isnan(pulse.other_hz):
+        text += f"\nAlso: {pulse.other_hz * 60:.0f} bpm  ({pulse.other_channels} channels)"
+    return text
+
+
+def is_watch_heart_rate_stream(name, stream_type):
+    return stream_type == "PPG" and (name.startswith("HR_") or name == "Smartwatch_PPG")
+
+
+class WatchHeartRate:
+    """Heart rate from a watch stream, to check the pulse peak against. Never blocks the UI."""
+
+    SCAN_PERIOD_SEC = 3.0
+    GONE_AFTER_SEC = 10.0
+
+    def __init__(self):
+        self.resolver = None
+        self.inlet = None
+        self.name = ""
+        self.readings = deque()
+        self.last_seen = 0.0
+        self.next_scan = 0.0
+
+    def scan(self, now):
+        if now < self.next_scan or not HAS_LSL:
+            return
+        self.next_scan = now + self.SCAN_PERIOD_SEC
+        if self.resolver is None:
+            self.resolver = ContinuousResolver()
+        match = next((s for s in self.resolver.results() if is_watch_heart_rate_stream(s.name(), s.type())), None)
+        if match is not None:
+            self.attach(StreamInlet(match), match.name(), now)
+
+    def attach(self, inlet, name, now):
+        self.inlet, self.name, self.last_seen = inlet, name, now
+        self.readings.clear()
+
+    def poll(self, now):
+        if self.inlet is None:
+            self.scan(now)
+            return
+        try:
+            samples, _ = self.inlet.pull_chunk(timeout=0.0)
+        except Exception:
+            samples = None
+            self.last_seen = -np.inf
+        for sample in samples or []:
+            self.last_seen = now
+            if sample[0] > 0:  # The watch sends 0 while it has no reading
+                self.readings.append((now, float(sample[0])))
+        while self.readings and now - self.readings[0][0] > WATCH_AVERAGE_SEC:
+            self.readings.popleft()
+        if now - self.last_seen > self.GONE_AFTER_SEC:
+            self.inlet = None
+            self.readings.clear()
+
+    def text(self):
+        """Average over the same span as the pulse peak. None when there is no watch."""
+        if self.inlet is None:
+            return None
+        if not self.readings:
+            return "Watch: waiting for a reading"
+        return f"Watch: {np.mean([value for _, value in self.readings]):.0f} bpm  ({self.name})"
 
 
 def contact_score(sci, pulse):
@@ -663,6 +772,7 @@ LOW_LIGHT_OD = 1.75
 # Not separable from a pulse: a real rhythmic movement inside the band, such as nodding at about 1 Hz.
 # A real pulse on the head reached 5-65 in the same window.
 PULSE_CLEAR_STRENGTH = 5.0
+WATCH_AVERAGE_SEC = 20.0
 PULSE_MIN_CHANNELS = 3
 PULSE_STRONG_STRENGTH = 10.0
 PULSE_STRONG_CHANNELS = 2
@@ -678,7 +788,7 @@ QUALITY_COLUMNS = (
     ("Mean ΔOD", "Mean change from the viewer baseline at 760 nm"),
     ("SD ΔOD", "Signal spread at 760 nm over the window. Large values suggest movement"),
     ("Peak Hz", "This channel's own strongest frequency in the cardiac band"),
-    ("Pulse", "Spectral peak at the shared heart rate, over the band median"),
+    ("Pulse", "Spectral peak at the pulse peak's rate, over the band's trend"),
     ("Pulse size", "Cardiac-band amplitude at 760 nm, in OD"),
     ("SCI", "Scalp coupling index: 760/850 nm correlation in the cardiac band"),
     ("Contact", "SCI discounted when no clear pulse backs it up. Sets the head map colors"),
@@ -956,7 +1066,10 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         self.lbl_hbo_peak = QtWidgets.QLabel("Peak ΔHbO: -- µM")
         self.lbl_hbo_peak.setStyleSheet("color: #ff4757; font-weight: bold;")
         self.lbl_sci_avg = QtWidgets.QLabel("Mean Optode Contact (SCI): --")
-        self.lbl_heart = QtWidgets.QLabel("Heart Rate: --")
+        self.lbl_heart = QtWidgets.QLabel("Pulse peak: --")
+        self.watch = WatchHeartRate()
+        self.lbl_watch = QtWidgets.QLabel()
+        self.lbl_watch.setVisible(False)
         self.lbl_status = QtWidgets.QLabel()
         self.lbl_status.setWordWrap(True)
         self.set_status("Stream: Idle (Press Connect LSL)", "#e3b341")
@@ -965,6 +1078,7 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         m_layout.addWidget(self.lbl_hbo_peak)
         m_layout.addWidget(self.lbl_sci_avg)
         m_layout.addWidget(self.lbl_heart)
+        m_layout.addWidget(self.lbl_watch)
         m_layout.addWidget(self.lbl_status)
         sidebar_layout.addWidget(metrics_box)
 
@@ -1276,9 +1390,17 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         elif now - self.last_sample_time > STALE_STREAM_SEC:
             self.set_status(f"Stream: No data for {now - self.last_sample_time:.0f} s (optodes off the head, or link lost)", "#f85149")
 
+    def update_watch(self):
+        self.watch.poll(time.monotonic())
+        text = self.watch.text()
+        self.lbl_watch.setVisible(text is not None)
+        if text is not None and text != self.lbl_watch.text():
+            self.lbl_watch.setText(text)
+
     def poll_and_update(self):
         if HAS_LSL and self.inlet:
             self.pull_lsl()
+        self.update_watch()
         if self.needs_redraw and self.is_calibrated and self.stream_layout is not None and self.stream_layout.first:
             self.needs_redraw = False
             self.redraw()
@@ -1339,10 +1461,7 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         else:
             self.lbl_sci_avg.setText("Mean Contact: not measured")
             self.lbl_sci_avg.setStyleSheet("color: #8b949e;")
-        if np.isnan(pulse.heart_hz):
-            self.lbl_heart.setText("Heart Rate: no shared pulse found")
-        else:
-            self.lbl_heart.setText(f"Heart Rate: {pulse.heart_hz * 60:.0f} bpm  ({pulse.channels_with_pulse} of {first.shape[1]} channels)")
+        self.lbl_heart.setText(pulse_peak_text(pulse))
         rate = f"Sampling Rate: {self.srate:.1f} Hz"
         if self.stream_start_time is not None and self.samples_received:
             rate += f" (actual {self.samples_received / max(time.monotonic() - self.stream_start_time, 1e-3):.1f})"
