@@ -57,16 +57,26 @@ class BaselineSettler:
         self.dropped = 0
         self.first_frame_time = None
         self.good_frames = 0
-        self.startup_levels = None  # Absolute OD per column, from the first frame if it was pre-baseline
+        self.peak_levels = None
+
+    @property
+    def startup_levels(self):
+        """Absolute OD per column from the held-back frames. NaN where a column never showed its level, None if none did.
+
+        The first frame alone isn't enough: on real hardware R1 can still read about 1.3 OD while R2 is already at 0.
+        """
+        if self.peak_levels is None or np.max(self.peak_levels) < self.MAX_OD:
+            return None
+        return np.where(self.peak_levels >= self.MAX_OD, self.peak_levels, np.nan)
 
     def accept(self, frame, now):
         """True once frames are safe to publish, including this one."""
         if self.settled:
             return True
+        level = np.abs(frame)
+        self.peak_levels = level if self.peak_levels is None else np.maximum(self.peak_levels, level)
         if self.first_frame_time is None:
             self.first_frame_time = now
-            if np.max(np.abs(frame)) >= self.MAX_OD:
-                self.startup_levels = frame.copy()
         self.good_frames = self.good_frames + 1 if np.max(np.abs(frame)) < self.MAX_OD else 0
         if self.good_frames >= self.FRAMES_NEEDED:
             self.settled = True
@@ -75,6 +85,11 @@ class BaselineSettler:
         else:
             self.dropped += 1
         return self.settled
+
+
+def startup_light_text(levels):
+    """Worst wavelength per transmitter, with -- where the level is unknown."""
+    return " ".join("--" if np.isnan(pair).all() else f"{np.nanmax(pair):.2f}" for pair in levels.reshape(-1, 2))
 
 
 class ArtinisOctaPortaLSL:
@@ -301,8 +316,7 @@ class ArtinisOctaPortaLSL:
                                 print(f"[+] Baseline settled; held back {settler.dropped} frames.", flush=True)
                             self.setup_lsl(settler.startup_levels)
                             if settler.startup_levels is not None:
-                                print("[+] Startup light level (OD, lower = more light), T1..T8:", " ".join(
-                                    f"{level:.2f}" for level in np.max(settler.startup_levels.reshape(-1, 2), axis=1)), flush=True)
+                                print("[+] Startup light level (OD, lower = more light), T1..T8:", startup_light_text(settler.startup_levels), flush=True)
                         self.outlet.push_sample(frame.tolist(), local_clock())
                         current_sample[:] = frame
                         total_pushed += 1

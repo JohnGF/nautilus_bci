@@ -183,11 +183,12 @@ def scalp_coupling_index(first, second, sos_cardiac, min_samples):
 PulseMetrics = namedtuple("PulseMetrics", "heart_hz channels_with_pulse own_hz strength size")
 
 
-def pulse_metrics(first, second, srate, sos_cardiac, min_seconds=8.0):
+def pulse_metrics(first, second, srate, sos_cardiac, min_seconds=16.0):
     """Look for a heartbeat shared across channels. All values are NaN when it can't be measured.
 
-    strength is the spectral peak at the shared heart rate over the median of the cardiac band. Unlike
+    strength is the spectral peak at the shared heart rate over the cardiac band's trend. Unlike
     the scalp coupling index it stays low for noise that is merely common to both wavelengths.
+    Each pod also gets its own vote, so a pod with no light can't hide the pulse on the other one.
     """
     n_channels = first.shape[1]
     nan = np.full(n_channels, np.nan)
@@ -199,19 +200,38 @@ def pulse_metrics(first, second, srate, sos_cardiac, min_seconds=8.0):
     band = (freqs >= 0.8) & (freqs <= 2.5)
     band_freqs = freqs[band]
     power = (power_first + power_second)[band]
-    floor = np.maximum(np.median(power, axis=0), 1e-18)
-    ratio = power / floor
+    # Compare against the spectrum's own slope: against a flat floor, slow drift looks like a peak at the low edge
+    log_freqs = np.log(band_freqs)
+    slope, offset = np.polyfit(log_freqs, np.log(np.maximum(power, 1e-18)), 1)
+    ratio = power / np.maximum(np.exp(np.outer(log_freqs, slope) + offset), 1e-18)
+
+    def near(index):
+        return np.abs(band_freqs - band_freqs[index]) <= 0.15
 
     # Channels vote with their whole spectrum, so one noisy channel can't pick the heart rate
-    consensus = int(np.argmax(np.sum(np.log(np.maximum(ratio, 1.0)), axis=1)))
-    near = np.abs(band_freqs - band_freqs[consensus]) <= 0.15
-    strength = np.max(ratio[near], axis=0)
-    channels_with_pulse = int(np.sum(strength >= PULSE_CLEAR_STRENGTH))
-    shared = channels_with_pulse >= PULSE_MIN_CHANNELS
-    heart_hz = float(band_freqs[consensus]) if shared else np.nan
+    votes = np.log(np.maximum(ratio, 1.0))
+    head_vote = np.sum(votes, axis=1)
+    consensus, confirmed, best_vote = int(np.argmax(head_vote)), False, -np.inf
+    groups = [np.arange(n_channels)]
+    if n_channels == 8:
+        groups += [np.arange(0, 4), np.arange(4, 8)]
+    for channels in groups:
+        vote = np.mean(votes[:, channels], axis=1)  # Per channel, or the whole head always outvotes a pod
+        candidate = int(np.argmax(vote))
+        if candidate == 0:
+            continue  # Spectrum still falling at the band edge: drift or movement, not a peak
+        peaks = np.max(ratio[near(candidate)][:, channels], axis=0)
+        clear = np.sum(peaks >= PULSE_CLEAR_STRENGTH) >= PULSE_MIN_CHANNELS
+        strong = np.sum(peaks >= PULSE_STRONG_STRENGTH) >= PULSE_STRONG_CHANNELS
+        if (clear or strong) and vote[candidate] > best_vote:
+            consensus, confirmed, best_vote = candidate, True, vote[candidate]
+
+    strength = np.max(ratio[near(consensus)], axis=0)
+    heart_hz = float(band_freqs[consensus]) if confirmed else np.nan
+    channels_with_pulse = int(np.sum(strength >= PULSE_CLEAR_STRENGTH)) if confirmed else 0
     own_hz = band_freqs[np.argmax(ratio, axis=0)]
     size = zero_phase_filter(sos_cardiac, first).std(axis=0) if sos_cardiac is not None else nan
-    return PulseMetrics(heart_hz, channels_with_pulse if shared else 0, own_hz, strength, size)
+    return PulseMetrics(heart_hz, channels_with_pulse, own_hz, strength, size)
 
 
 def contact_score(sci, pulse):
@@ -638,10 +658,14 @@ STALE_STREAM_SEC = 3.0
 # Startup OD: about 1.82 looked like a no-light floor. Note text only, from one session's data: optodes
 # near 1.75-1.80 were sometimes weak and sometimes fine.
 LOW_LIGHT_OD = 1.75
-# Calibrated for the viewer's 20 s window. In 1500 simulated windows of 8 pink-noise channels, 3 channels
-# reached 5 only 0.27% of the time and never reached 6. A real pulse on the head reached 5-8 in the same window.
+# Calibrated on 1500 simulated windows each of white, pink, red and shared-red noise, single steps and coarse dark-pod
+# noise: none falsely confirmed at 16 or 20 s. Below 16 s, drift shared by all channels confirmed up to 17% of the time.
+# Not separable from a pulse: a real rhythmic movement inside the band, such as nodding at about 1 Hz.
+# A real pulse on the head reached 5-65 in the same window.
 PULSE_CLEAR_STRENGTH = 5.0
 PULSE_MIN_CHANNELS = 3
+PULSE_STRONG_STRENGTH = 10.0
+PULSE_STRONG_CHANNELS = 2
 NO_SHARED_PULSE_DISCOUNT = 0.4
 QUALITY_PERIOD_SEC = 1.0
 QUALITY_COLUMNS = (

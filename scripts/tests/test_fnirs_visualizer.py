@@ -304,14 +304,51 @@ def test_pulse_metrics_need_enough_data(cardiac_sos):
     assert np.isnan(pulse.heart_hz) and np.isnan(pulse.strength).all()
 
 
-def test_two_channels_alone_do_not_confirm_a_pulse(cardiac_sos):
-    first, second = pulse_fixture()
-    first[:, 2:5] -= 0.003 * np.sin(2 * np.pi * 1.1 * np.arange(1000) / SRATE)[:, None]
-    second[:, 2:5] -= 0.0025 * np.sin(2 * np.pi * 1.1 * np.arange(1000) / SRATE)[:, None]
+def two_channel_pulse(amplitude, channels=(1, 2), n=1000):
+    rng = np.random.default_rng(11)
+    first, second = rng.normal(0, 0.001, (n, 8)), rng.normal(0, 0.001, (n, 8))
+    wave = amplitude * np.sin(2 * np.pi * 1.4 * np.arange(n) / SRATE)
+    for ch in channels:
+        first[:, ch] += wave
+        second[:, ch] += 0.8 * wave
+    return first, second
+
+
+def test_two_strong_channels_on_one_pod_confirm_a_pulse_despite_a_dark_pod(cardiac_sos):
+    first, second = two_channel_pulse(0.003)
+    first[:, 4:] = np.round(first[:, 4:] / 4e-4) * 4e-4
+    second[:, 4:] = np.round(second[:, 4:] / 4e-4) * 4e-4
+    pulse = fv.pulse_metrics(first, second, SRATE, cardiac_sos)
+    assert pulse.heart_hz == pytest.approx(1.4, abs=0.1)
+    assert pulse.channels_with_pulse == 2
+    sci = fv.scalp_coupling_index(first, second, cardiac_sos, 250)
+    contact = fv.contact_score(sci, pulse)
+    assert contact[1] > 0.9 and contact[2] > 0.9
+    assert contact[4:].max() < 0.5
+
+
+def test_two_weak_channels_do_not_confirm_a_pulse(cardiac_sos):
+    first, second = two_channel_pulse(0.0002)
     pulse = fv.pulse_metrics(first, second, SRATE, cardiac_sos)
     assert np.isnan(pulse.heart_hz) and pulse.channels_with_pulse == 0
     sci = fv.scalp_coupling_index(first, second, cardiac_sos, 250)
-    assert fv.contact_score(sci, pulse)[0] < fv.WEAK_SCI
+    assert fv.contact_score(sci, pulse)[1] < fv.WEAK_SCI
+
+
+def test_two_strong_channels_on_different_pods_confirm_a_pulse(cardiac_sos):
+    first, second = two_channel_pulse(0.003, channels=(1, 6))
+    pulse = fv.pulse_metrics(first, second, SRATE, cardiac_sos)
+    assert pulse.heart_hz == pytest.approx(1.4, abs=0.1)
+
+
+def test_a_spectrum_falling_at_the_band_edge_is_not_a_pulse(cardiac_sos):
+    rng = np.random.default_rng(12)
+    n = 1000
+    drift = np.cumsum(rng.normal(0, 0.002, (n, 1)), axis=0)
+    gains = np.array([1.0, 0.8, 1.2, 0.9, 1.0, 0.7, 1.1, 0.6])
+    first = drift * gains + rng.normal(0, 1e-5, (n, 8))
+    second = drift * gains + rng.normal(0, 1e-5, (n, 8))
+    assert np.isnan(fv.pulse_metrics(first, second, SRATE, cardiac_sos).heart_hz)
 
 
 def test_notes_say_pulse_unclear_when_no_pulse_is_shared():
@@ -353,6 +390,29 @@ def test_bridge_publishes_startup_levels_in_stream_metadata():
     layout = fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16)
     first, second = fv.startup_levels_per_channel(values, layout)
     assert first[1] == pytest.approx(0.8, abs=1e-3) and second[1] == pytest.approx(0.9, abs=1e-3)
+
+
+def test_startup_levels_keep_each_columns_peak_and_mark_unseen_ones_unknown():
+    from bridges.artinis_to_lsl import BaselineSettler, startup_light_text
+
+    settler = BaselineSettler()
+    early = np.zeros(16)
+    early[:8] = 1.3  # R1 still shows its level while R2 is already baselined
+    late = np.zeros(16)
+    late[:8] = 1.3
+    late[8:14] = 1.8  # T5..T7 show up one frame later, T8 never does
+    settler.accept(early, 100.0)
+    settler.accept(late, 100.02)
+    levels = settler.startup_levels
+    assert levels[:14] == pytest.approx([1.3] * 8 + [1.8] * 6)
+    assert np.isnan(levels[14:]).all()
+    assert startup_light_text(levels) == "1.30 1.30 1.30 1.30 1.80 1.80 1.80 --"
+
+    values = [f"{value:.3f}" for value in levels]
+    first, second = fv.startup_levels_per_channel(values, fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16))
+    assert first[6] == pytest.approx(1.8) and np.isnan(first[7]) and np.isnan(second[7])
+    assert fv.channel_notes(first, second, np.full(8, np.nan))[6] == "low light at start"
+    assert fv.channel_notes(first, second, np.full(8, np.nan))[7] == ""
 
 
 def test_no_startup_levels_when_the_first_frame_is_already_baselined():
