@@ -570,6 +570,7 @@ WEAK_SCI = 0.45
 GOOD_SCI = 0.70
 WEAK_HOLD_SEC = 30.0  # Longer than the display window, so one bad stretch can't trigger a hint
 STALE_STREAM_SEC = 3.0
+LEVEL_JUMP_OD = 0.5  # Measured frame-to-frame steps on the head peak near 0.02 OD; SDK baseline jumps are 1.2-1.8
 DEFAULT_SCALE_UM = 1.0  # The manual gives no scale; task responses are typically around 1 uM
 
 
@@ -1028,9 +1029,26 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
             self.chk_mbll.setChecked(True)
         self.rebuild_plots()
 
+    def drop_before_level_jump(self, samples):
+        """Forget everything before a jump in OD level, so the baseline can't be calibrated across it.
+
+        The SDK's baseline takes effect after a flat high plateau, and Bluetooth dropouts shift the level too.
+        """
+        if self.stream_layout.kind != KIND_OD:
+            return samples
+        previous = self.raw_buffer[-1:] if self.sample_count else samples[:1]
+        steps = np.abs(np.diff(np.vstack([previous, samples]), axis=0)).max(axis=1)
+        jumps = np.flatnonzero(steps > LEVEL_JUMP_OD)
+        if len(jumps) == 0:
+            return samples
+        self.sample_count = 0
+        self.is_calibrated = False
+        self.set_status("Stream: Signal level jumped, baseline reset", "#e3b341")
+        return samples[jumps[-1]:]
+
     def push_samples(self, samples):
         """Append a (time, column) chunk to the rolling buffer."""
-        samples = samples[-self.max_samples:]
+        samples = self.drop_before_level_jump(samples)[-self.max_samples:]
         n = samples.shape[0]
         self.raw_buffer = np.roll(self.raw_buffer, -n, axis=0)
         self.raw_buffer[-n:, :] = samples

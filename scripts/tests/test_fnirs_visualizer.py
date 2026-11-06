@@ -176,6 +176,68 @@ def test_reconnecting_recalibrates_the_baseline(window):
     assert not window.is_calibrated
 
 
+def test_baseline_ignores_the_sdk_startup_plateau_even_within_one_chunk(window):
+    window.attach_stream(fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16), 16, SRATE)
+    window.push_samples(np.full((22, 16), 1.8))
+    assert window.is_calibrated  # The plateau is flat, so it does look calibrated at first
+    window.push_samples(bridge_chunk(30))
+    assert window.baseline == pytest.approx(np.full(16, 0.001))
+    assert window.sample_count == 30
+
+    window.attach_stream(fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16), 16, SRATE)
+    window.push_samples(np.vstack([np.full((10, 16), 1.8), bridge_chunk(20)]))
+    assert window.baseline == pytest.approx(np.full(16, 0.001))
+
+
+def test_level_jump_mid_stream_recalibrates_instead_of_offsetting_the_trace(window):
+    window.chk_filter.setChecked(False)
+    window.attach_stream(fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16), 16, SRATE)
+    window.push_samples(bridge_chunk(60))
+    window.push_samples(bridge_chunk(60) - 1.8)
+    window.poll_and_update()
+    assert window.headmap_widget.channel_values == pytest.approx(np.zeros(8), abs=1e-9)
+    assert "baseline reset" in window.lbl_status.text()
+
+
+def test_normal_pulse_steps_do_not_reset_the_baseline(window):
+    window.attach_stream(fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16), 16, SRATE)
+    window.push_samples(bridge_chunk(60))
+    window.push_samples(bridge_chunk(60) + 0.1)  # Beyond any step measured on the head
+    assert window.sample_count == 120
+
+
+def test_concentration_streams_are_not_reset_by_large_values(window):
+    labels = [f"Tx{i}_HbO" for i in range(1, 9)] + [f"Tx{i}_HbR" for i in range(1, 9)]
+    window.attach_stream(fv.parse_stream_layout(labels, ["micromol/L"] * 16, 16), 16, SRATE)
+    window.push_samples(np.zeros((20, 16)))
+    window.push_samples(np.full((20, 16), 3.0))
+    assert window.sample_count == 40
+
+
+def test_bridge_holds_back_frames_until_the_baseline_takes_effect():
+    from bridges.artinis_to_lsl import BaselineSettler
+
+    settler = BaselineSettler()
+    now = 100.0
+    plateau = [settler.accept(np.full(16, 1.8), now + i * 0.02) for i in range(22)]
+    assert not any(plateau)
+    settled = [settler.accept(np.full(16, 0.01), now + 0.5 + i * 0.02) for i in range(BaselineSettler.FRAMES_NEEDED)]
+    assert settled == [False] * (BaselineSettler.FRAMES_NEEDED - 1) + [True]
+    assert not settler.timed_out
+    assert settler.accept(np.full(16, 1.8), now + 2.0)  # Once settled, later frames always pass
+
+
+def test_bridge_publishes_anyway_if_one_channel_never_settles():
+    from bridges.artinis_to_lsl import BaselineSettler
+
+    settler = BaselineSettler()
+    bad_channel = np.zeros(16)
+    bad_channel[5] = 1.0
+    assert not settler.accept(bad_channel, 100.0)
+    assert settler.accept(bad_channel, 100.0 + BaselineSettler.TIMEOUT_SEC)
+    assert settler.timed_out
+
+
 def test_time_axis_is_true_while_the_window_is_filling(window):
     window.attach_stream(fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16), 16, SRATE)
     window.push_samples(bridge_chunk(100))

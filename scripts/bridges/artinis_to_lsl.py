@@ -39,6 +39,41 @@ def bt_preflight(address, scan_seconds=12, no_pair=False):
         print(f"[-] Bluetooth preflight failed: {res['error']}", flush=True)
     return res
 
+class BaselineSettler:
+    """Holds back the frames before the SDK baseline takes effect.
+
+    On real hardware the first ~0.5 s reads about 1.2-1.8 OD on every channel, then drops to
+    near 0. Those frames are perfectly flat, so stability can't identify them; the level can.
+    A channel that genuinely stays high (a bad optode) must not block the stream, hence the timeout.
+    """
+
+    MAX_OD = 0.5
+    FRAMES_NEEDED = 10
+    TIMEOUT_SEC = 5.0
+
+    def __init__(self):
+        self.settled = False
+        self.timed_out = False
+        self.dropped = 0
+        self.first_frame_time = None
+        self.good_frames = 0
+
+    def accept(self, frame, now):
+        """True once frames are safe to publish, including this one."""
+        if self.settled:
+            return True
+        if self.first_frame_time is None:
+            self.first_frame_time = now
+        self.good_frames = self.good_frames + 1 if np.max(np.abs(frame)) < self.MAX_OD else 0
+        if self.good_frames >= self.FRAMES_NEEDED:
+            self.settled = True
+        elif now - self.first_frame_time >= self.TIMEOUT_SEC:
+            self.settled = self.timed_out = True
+        else:
+            self.dropped += 1
+        return self.settled
+
+
 class ArtinisOctaPortaLSL:
     def __init__(self, bt_address="682719F8B937", sample_rate=50, num_channels=16, dpf=6.0, optode_dist_m=0.030, mode="od", mock=False, preflight=True, no_pair=False, retries=3):
         self.bt_address = bt_address
@@ -217,6 +252,7 @@ class ArtinisOctaPortaLSL:
         last_new = time.time()
         warned_stale = False
         prev_frame = None
+        settler = BaselineSettler() if self.mode == "od" else None
         current_sample = np.zeros(self.num_channels, dtype=np.float32)
 
         print("\n[*] Live fNIRS streaming active on LSL. (Press Ctrl+C to stop)\n", flush=True)
@@ -245,12 +281,19 @@ class ArtinisOctaPortaLSL:
                     # Same buffer as last call: no new sample from the device
                     dropped_dup += 1
                 else:
-                    self.outlet.push_sample(frame.tolist(), local_clock())
                     prev_frame = frame
-                    current_sample[:] = frame
-                    total_pushed += 1
                     last_new = time.time()
                     warned_stale = False
+                    was_settled = settler is None or settler.settled
+                    if settler is None or settler.accept(frame, last_new):
+                        if not was_settled:
+                            if settler.timed_out:
+                                print(f"[!] A channel is still above {settler.MAX_OD} OD after {settler.TIMEOUT_SEC:.0f} s; publishing anyway. Check optode contact.", flush=True)
+                            else:
+                                print(f"[+] Baseline settled; held back {settler.dropped} frames.", flush=True)
+                        self.outlet.push_sample(frame.tolist(), local_clock())
+                        current_sample[:] = frame
+                        total_pushed += 1
 
                 now = time.time()
                 if now - last_new > 2.0 and not warned_stale:
