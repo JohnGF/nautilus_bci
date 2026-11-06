@@ -8,14 +8,39 @@ import sys
 import time
 import argparse
 import ctypes
+import json
+import subprocess
 import numpy as np
 from pylsl import StreamInfo, StreamOutlet, local_clock
 
 SDK_DIR = r"C:\Program Files\gtec\gHIsys\gSENSORfNIRS"
 SDK_DLL = os.path.join(SDK_DIR, "OctaPortaSDK.dll")
 
+# Decadic molar extinction (1/(cm*M)) at [760, 850] nm for [HbO, HbR], used by the mock stream
+EXTINCTION = np.array([[1486.586, 3843.707], [2526.391, 1798.643]])
+BT_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bt_preflight.ps1")
+
+
+def bt_preflight(address, scan_seconds=12, no_pair=False):
+    """Check the Bluetooth radio, locate/pair the Artinis device and wake the link."""
+    cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", BT_HELPER,
+           "-Address", address, "-ScanSeconds", str(scan_seconds)]
+    if no_pair:
+        cmd.append("-NoPair")
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=scan_seconds + 30).stdout.strip()
+        res = json.loads(out.splitlines()[-1])
+    except Exception as e:
+        print(f"[!] Bluetooth preflight could not run: {e}", flush=True)
+        return None
+    print(f"[*] Bluetooth: radio={res['radio']} found={res['found']} paired={res['paired']} "
+          f"connected={res['connected']} actions={res['action']}", flush=True)
+    if not res["ok"]:
+        print(f"[-] Bluetooth preflight failed: {res['error']}", flush=True)
+    return res
+
 class ArtinisOctaPortaLSL:
-    def __init__(self, bt_address="682719F8B937", sample_rate=50, num_channels=16, dpf=6.0, optode_dist_m=0.035, mode="od", mock=False):
+    def __init__(self, bt_address="682719F8B937", sample_rate=50, num_channels=16, dpf=6.0, optode_dist_m=0.030, mode="od", mock=False, preflight=True, no_pair=False, retries=3):
         self.bt_address = bt_address
         self.sample_rate = sample_rate
         self.num_channels = num_channels
@@ -23,6 +48,9 @@ class ArtinisOctaPortaLSL:
         self.optode_dist_m = optode_dist_m
         self.mode = mode
         self.mock = mock
+        self.preflight = preflight
+        self.no_pair = no_pair
+        self.retries = retries
         self.running = False
         self.sdk = None
         self.outlet = None
@@ -40,17 +68,20 @@ class ArtinisOctaPortaLSL:
             source_id=f'OctaMon_{"SIM" if self.mock else self.bt_address}'
         )
         desc = info.desc().append_child("channels")
-        for i in range(8):
-            ch = desc.append_child("channel")
-            ch.append_child_value("label", f"Tx{i+1}_HbO" if self.mode == "conc" else f"Tx{i+1}_760nm")
-            ch.append_child_value("type", "HbO" if self.mode == "conc" else "fNIRS")
-            ch.append_child_value("unit", "micromol/L" if self.mode == "conc" else "OD")
-
-        for i in range(8):
-            ch = desc.append_child("channel")
-            ch.append_child_value("label", f"Tx{i+1}_HbR" if self.mode == "conc" else f"Tx{i+1}_850nm")
-            ch.append_child_value("type", "HbR" if self.mode == "conc" else "fNIRS")
-            ch.append_child_value("unit", "micromol/L" if self.mode == "conc" else "OD")
+        # SDK output is interleaved per transmitter: [T1 a, T1 b, T2 a, T2 b, ...].
+        # T1-T4 belong to R1 (right), T5-T8 to R2 (left). Per the g.SENSOR 8 fNIRS manual (v1.20.01):
+        # odd channels = 760 nm (OD) / HbO (conc), even channels = 850 nm (OD) / HbR (conc).
+        names = ("HbO", "HbR") if self.mode == "conc" else ("760nm", "850nm")
+        for tx in range(1, 9):
+            rx = 1 if tx <= 4 else 2
+            for wl in range(2):
+                ch = desc.append_child("channel")
+                ch.append_child_value("label", f"R{rx}_T{tx}_{names[wl]}")
+                ch.append_child_value("type", names[wl] if self.mode == "conc" else "fNIRS")
+                ch.append_child_value("unit", "micromol/L" if self.mode == "conc" else "OD")
+                ch.append_child_value("receiver", f"R{rx}")
+                ch.append_child_value("transmitter", f"T{tx}")
+                ch.append_child_value("side", "right" if rx == 1 else "left")
 
         self.outlet = StreamOutlet(info)
         mode_str = f"MODE: {self.mode.upper()} (BT: {self.bt_address})"
@@ -86,6 +117,25 @@ class ArtinisOctaPortaLSL:
         self.sdk.artinis_get_battery_status.argtypes = [ctypes.c_int]
         self.sdk.artinis_get_battery_status.restype = ctypes.c_int
 
+    def mock_frame(self, t):
+        """One simulated frame in the live layout: [T1 760nm/HbO, T1 850nm/HbR, T2 ...]."""
+        cardiac = 0.5 * np.sin(2 * np.pi * 1.15 * t)
+        resp = 0.3 * np.sin(2 * np.pi * 0.25 * t)
+        mayer = 0.8 * np.sin(2 * np.pi * 0.10 * t)
+        is_active = (int(t) % 16) < 8
+        activation = 1.0 / (1.0 + np.exp(-1.5 * ((t % 16) - 3))) if is_active else 0.0
+        hbo = 3.5 * activation + mayer + resp * 0.6 + cardiac + np.random.normal(0, 0.05, 8)
+        hbr = -1.2 * activation - 0.3 * mayer - 0.2 * resp + cardiac * 0.3 + np.random.normal(0, 0.03, 8)
+
+        if self.mode == "od":
+            pathlength_cm = self.optode_dist_m * 100.0 * self.dpf
+            first, second = EXTINCTION @ np.vstack([hbo, hbr]) * 1e-6 * pathlength_cm
+        else:
+            first, second = hbo, hbr
+        frame = np.zeros(self.num_channels, dtype=np.float32)
+        frame[0::2], frame[1::2] = first, second
+        return frame
+
     def start_mock(self):
         self.running = True
         self.setup_lsl()
@@ -96,25 +146,12 @@ class ArtinisOctaPortaLSL:
 
         while self.running:
             t = time.time() - t_start
-            sample = np.zeros(self.num_channels, dtype=np.float32)
-
-            cardiac = 0.5 * np.sin(2 * np.pi * 1.15 * t)
-            resp = 0.3 * np.sin(2 * np.pi * 0.25 * t)
-            mayer = 0.8 * np.sin(2 * np.pi * 0.10 * t)
-            is_active = (int(t) % 16) < 8
-            hrf_hbo = 3.5 * (1.0 / (1.0 + np.exp(-1.5 * ((t % 16) - 3)))) if is_active else 0.0
-            hrf_hbr = -1.2 * (1.0 / (1.0 + np.exp(-1.5 * ((t % 16) - 3)))) if is_active else 0.0
-
-            for i in range(8):
-                noise1 = float(np.random.normal(0, 0.05))
-                noise2 = float(np.random.normal(0, 0.03))
-                sample[i] = float(hrf_hbo + mayer + resp * 0.6 + cardiac + noise1)
-                sample[8 + i] = float(hrf_hbr - 0.3 * mayer - 0.2 * resp + noise2)
+            sample = self.mock_frame(t)
 
             self.outlet.push_sample(sample.tolist(), local_clock())
 
             if time.time() - last_stat > 1.0:
-                print(f"[*] [MOCK fNIRS] Active @ {self.sample_rate}Hz | Tx1: {sample[0]:+.2f} | Tx8: {sample[8]:+.2f}", flush=True)
+                print(f"[*] [MOCK fNIRS] Active @ {self.sample_rate}Hz | R1T1: {sample[0]:+.3f} | R2T5: {sample[8]:+.3f}", flush=True)
                 last_stat = time.time()
 
             time.sleep(dt)
@@ -125,11 +162,20 @@ class ArtinisOctaPortaLSL:
             return
 
         print(f"[*] Initializing Artinis OctaPortaSDK for device BT: {self.bt_address}...", flush=True)
+        pre = bt_preflight(self.bt_address, no_pair=self.no_pair) if self.preflight else None
+        if pre is not None and not pre["ok"]:
+            return
         self.init_sdk()
 
         p_str = ctypes.c_char_p(self.bt_address.encode('ascii'))
         print(f"[*] Connecting to Artinis device ({self.bt_address})...", flush=True)
-        res = self.sdk.artinis_start_portable_acquisition(ctypes.byref(p_str), 1, 2, self.sample_rate)
+        res = -1
+        for attempt in range(1, self.retries + 1):
+            res = self.sdk.artinis_start_portable_acquisition(ctypes.byref(p_str), 1, 2, self.sample_rate)
+            if res == 0:
+                break
+            print(f"[-] Connect attempt {attempt}/{self.retries} failed (code: {res}); retrying...", flush=True)
+            time.sleep(2.0)
         if res != 0:
             print(f"[-] Failed to connect to Artinis device (code: {res}).", flush=True)
             print("    Please ensure device is powered ON and paired in Windows Bluetooth.", flush=True)
@@ -150,7 +196,7 @@ class ArtinisOctaPortaLSL:
         print("[+] Optical baseline established!", flush=True)
 
         battery = self.sdk.artinis_get_battery_status(0)
-        print(f"[+] Device Battery Level: {battery}%", flush=True)
+        print(f"[?] SDK battery value: {battery} (unverified meaning; check device indicator)", flush=True)
 
         self.setup_lsl()
         self.running = True
@@ -165,6 +211,12 @@ class ArtinisOctaPortaLSL:
 
         last_stat = time.time()
         total_pushed = 0
+        dropped_zero = 0
+        dropped_dup = 0
+        errors = 0
+        last_new = time.time()
+        warned_stale = False
+        prev_frame = None
         current_sample = np.zeros(self.num_channels, dtype=np.float32)
 
         print("\n[*] Live fNIRS streaming active on LSL. (Press Ctrl+C to stop)\n", flush=True)
@@ -173,7 +225,7 @@ class ArtinisOctaPortaLSL:
 
         while self.running:
             try:
-                ret = self.sdk.artinis_get_concentrations_tsi(
+                self.sdk.artinis_get_concentrations_tsi(
                     ctypes.byref(n_samples),
                     buf_od,
                     ctypes.c_int(100),
@@ -184,37 +236,39 @@ class ArtinisOctaPortaLSL:
                     ctypes.byref(n_sq)
                 )
 
-                s_count = n_samples.value
-                
-                # Check for samples arriving from hardware
-                if s_count > 0:
-                    raw_data = np.ctypeslib.as_array(buf_od)
-                    raw_sq_data = np.ctypeslib.as_array(buf_sq)
-                    
-                    if np.count_nonzero(raw_data[:16]) > 0:
-                        frame = raw_data[:16].astype(np.float32)
-                    elif np.count_nonzero(raw_sq_data[:16]) > 0:
-                        frame = raw_sq_data[:16].astype(np.float32)
-                    else:
-                        frame = raw_data[:16].astype(np.float32)
-                        
+                source = buf_conc if self.mode == "conc" else buf_od
+                frame = np.ctypeslib.as_array(source)[:self.num_channels].astype(np.float32).copy()
+                if not np.any(frame):
+                    # SDK returns all zeros while settling / when nothing arrived; never publish those
+                    dropped_zero += 1
+                elif prev_frame is not None and np.array_equal(frame, prev_frame):
+                    # Same buffer as last call: no new sample from the device
+                    dropped_dup += 1
+                else:
                     self.outlet.push_sample(frame.tolist(), local_clock())
+                    prev_frame = frame
                     current_sample[:] = frame
                     total_pushed += 1
+                    last_new = time.time()
+                    warned_stale = False
 
                 now = time.time()
+                if now - last_new > 2.0 and not warned_stale:
+                    print(f"[!] No new data from device for {now - last_new:.1f}s (zero frames: {dropped_zero}, duplicate: {dropped_dup}). Check Bluetooth link / battery.", flush=True)
+                    warned_stale = True
                 if now - last_stat >= 1.0:
-                    ch1 = current_sample[0]
-                    ch8 = current_sample[8] if len(current_sample) > 8 else 0.0
-                    print(f"[*] Stream Active @ {self.sample_rate}Hz | Pushed: {total_pushed} smp/s | Ch1: {ch1:+.3f} | Ch8: {ch8:+.3f}", flush=True)
-                    total_pushed = 0
+                    print(f"[*] Stream @ {self.sample_rate}Hz | new: {total_pushed}/s | zero-dropped: {dropped_zero} | dup-dropped: {dropped_dup} | errs: {errors} | R1T1: {current_sample[0]:+.3f} R2T5: {current_sample[8]:+.3f}", flush=True)
+                    total_pushed = dropped_zero = dropped_dup = 0
                     last_stat = now
 
-                time.sleep(dt * 0.95)
+                time.sleep(dt * 0.5)
 
             except KeyboardInterrupt:
                 break
             except Exception as e:
+                errors += 1
+                if errors <= 5:
+                    print(f"[-] Read error: {e!r}", flush=True)
                 time.sleep(0.02)
 
     def stop(self):
@@ -231,10 +285,15 @@ def main():
     parser.add_argument("--bt", default="682719F8B937", help="Device Bluetooth address (default: 682719F8B937)")
     parser.add_argument("--rate", type=int, default=50, help="Sampling rate in Hz (default: 50)")
     parser.add_argument("--mode", choices=["od", "conc"], default="od", help="Acquisition mode: 'od' for optical densities (760nm & 850nm) or 'conc' for HbO/HbR (default: od)")
+    parser.add_argument("--optode-dist-cm", type=float, default=3.0, help="Transmitter-receiver distance for SDK concentrations: 3.0 on the central pads, 3.2 on the forehead pads (manual section 6.4). Default: 3.0")
+    parser.add_argument("--no-preflight", action="store_true", help="Skip Bluetooth radio/pair check")
+    parser.add_argument("--no-pair", action="store_true", help="Check only; never attempt to pair")
+    parser.add_argument("--retries", type=int, default=3, help="SDK connect attempts (default: 3)")
     parser.add_argument("--mock", action="store_true", help="Run simulated fNIRS mock data stream")
     args = parser.parse_args()
 
-    bridge = ArtinisOctaPortaLSL(bt_address=args.bt, sample_rate=args.rate, mode=args.mode, mock=args.mock)
+    bridge = ArtinisOctaPortaLSL(bt_address=args.bt, sample_rate=args.rate, mode=args.mode, mock=args.mock, optode_dist_m=args.optode_dist_cm / 100.0,
+                                preflight=not args.no_preflight, no_pair=args.no_pair, retries=args.retries)
     try:
         bridge.start()
     except KeyboardInterrupt:
