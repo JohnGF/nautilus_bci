@@ -96,14 +96,15 @@ class ControlListener(threading.Thread):
 
     SCAN_PERIOD_SEC = 0.2
 
-    def __init__(self):
+    def __init__(self, stream_name=CONTROL_STREAM_NAME):
         super().__init__(daemon=True, name="fNIRS control")
+        self.stream_name = stream_name
         self.rebaseline = threading.Event()
         self.stopping = threading.Event()
 
     def run(self):
         try:
-            resolver = ContinuousResolver(prop="name", value=CONTROL_STREAM_NAME)
+            resolver = ContinuousResolver(prop="name", value=self.stream_name)
             inlets = {}
             while not self.stopping.wait(self.SCAN_PERIOD_SEC):
                 for info in resolver.results():

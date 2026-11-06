@@ -215,8 +215,9 @@ def format_run(run):
                      f"{run['sci'][ch]:>5.2f} {run['contact'][ch]:>8.2f} {100 * run['good_share'][ch]:>9.0f}%")
     found = np.isfinite(run["peaks"])
     if found.any():
-        lines.append(f"  Pulse peak: {np.nanmin(run['peaks']):.0f}-{np.nanmax(run['peaks']):.0f} bpm, "
-                     f"found in {found.sum()} of {len(found)} windows")
+        low, high = np.nanmin(run["peaks"]), np.nanmax(run["peaks"])
+        span = f"{low:.0f}" if low == high else f"{low:.0f}-{high:.0f}"
+        lines.append(f"  Pulse peak: {span} bpm, found in {found.sum()} of {len(found)} windows")
     else:
         lines.append(f"  Pulse peak: none found in {len(found)} windows")
     if run["watch_range"] is None:

@@ -556,8 +556,10 @@ def test_bridge_hears_a_viewer_command_over_real_lsl():
     from pylsl import StreamInfo, StreamOutlet
     from bridges.artinis_to_lsl import ControlListener
 
-    outlet = StreamOutlet(StreamInfo(fv.CONTROL_STREAM_NAME, "Control", 1, 0.0, "string"))
-    listener = ControlListener()
+    # A private name: the real name would also reach any running bridge and re-baseline the real device
+    name = f"TestBaselineControl_{os.getpid()}"
+    outlet = StreamOutlet(StreamInfo(name, "Control", 1, 0.0, "string"))
+    listener = ControlListener(stream_name=name)
     listener.start()
     try:
         assert outlet.wait_for_consumers(timeout=15.0)
@@ -570,7 +572,7 @@ def test_bridge_hears_a_viewer_command_over_real_lsl():
         listener.rebaseline.clear()
         del outlet
         time.sleep(1.0)
-        outlet = StreamOutlet(StreamInfo(fv.CONTROL_STREAM_NAME, "Control", 1, 0.0, "string"))
+        outlet = StreamOutlet(StreamInfo(name, "Control", 1, 0.0, "string"))
         assert outlet.wait_for_consumers(timeout=15.0)
         outlet.push_sample([fv.REBASELINE_COMMAND])
         assert listener.rebaseline.wait(timeout=5.0)
