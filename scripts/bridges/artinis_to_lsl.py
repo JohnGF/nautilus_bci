@@ -10,14 +10,18 @@ import argparse
 import ctypes
 import json
 import subprocess
+import threading
 import numpy as np
-from pylsl import StreamInfo, StreamOutlet, local_clock
+from pylsl import ContinuousResolver, StreamInfo, StreamInlet, StreamOutlet, local_clock
 
 SDK_DIR = r"C:\Program Files\gtec\gHIsys\gSENSORfNIRS"
 SDK_DLL = os.path.join(SDK_DIR, "OctaPortaSDK.dll")
 
 # Decadic molar extinction (1/(cm*M)) at [760, 850] nm for [HbO, HbR], used by the mock stream
 EXTINCTION = np.array([[1486.586, 3843.707], [2526.391, 1798.643]])
+# Sent by fnirs_visualizer.py. The name avoids "fNIRS" so nothing mistakes it for the data stream.
+CONTROL_STREAM_NAME = "OptodeBaselineControl"
+REBASELINE_COMMAND = "rebaseline"
 BT_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bt_preflight.ps1")
 
 
@@ -87,6 +91,42 @@ class BaselineSettler:
         return self.settled
 
 
+class ControlListener(threading.Thread):
+    """Listens for commands from any viewer on the network. A thread, so finding a viewer can't stall device reads."""
+
+    SCAN_PERIOD_SEC = 0.2
+
+    def __init__(self):
+        super().__init__(daemon=True, name="fNIRS control")
+        self.rebaseline = threading.Event()
+        self.stopping = threading.Event()
+
+    def run(self):
+        try:
+            resolver = ContinuousResolver(prop="name", value=CONTROL_STREAM_NAME)
+            inlets = {}
+            while not self.stopping.wait(self.SCAN_PERIOD_SEC):
+                for info in resolver.results():
+                    if info.uid() not in inlets:
+                        try:
+                            inlet = StreamInlet(info, recover=False)
+                            inlet.open_stream(timeout=2.0)
+                            inlets[info.uid()] = inlet
+                        except Exception:
+                            pass  # A viewer that just closed stays listed for a few seconds
+                for uid, inlet in list(inlets.items()):
+                    try:
+                        sample, _ = inlet.pull_sample(timeout=0.0)
+                        while sample:
+                            if sample[0] == REBASELINE_COMMAND:
+                                self.rebaseline.set()
+                            sample, _ = inlet.pull_sample(timeout=0.0)
+                    except Exception:
+                        inlets.pop(uid)  # That viewer closed
+        except Exception as exc:
+            print(f"[!] Control listener stopped, so Re-baseline won't work until a restart: {exc!r}", flush=True)
+
+
 def startup_light_text(levels):
     """Worst wavelength per transmitter, with -- where the level is unknown."""
     return " ".join("--" if np.isnan(pair).all() else f"{np.nanmax(pair):.2f}" for pair in levels.reshape(-1, 2))
@@ -101,6 +141,7 @@ class ArtinisOctaPortaLSL:
         self.optode_dist_m = optode_dist_m
         self.mode = mode
         self.mock = mock
+        self.control = None
         self.preflight = preflight
         self.no_pair = no_pair
         self.retries = retries
@@ -195,6 +236,9 @@ class ArtinisOctaPortaLSL:
     def start_mock(self):
         self.running = True
         self.setup_lsl()
+        self.control = ControlListener()
+        self.control.start()
+        mock_baseline = np.zeros(self.num_channels, dtype=np.float32)
         print("[*] Streaming realistic simulated fNIRS hemodynamics... (Ctrl+C to stop)", flush=True)
         dt = 1.0 / self.sample_rate
         t_start = time.time()
@@ -203,6 +247,11 @@ class ArtinisOctaPortaLSL:
         while self.running:
             t = time.time() - t_start
             sample = self.mock_frame(t)
+            if self.control.rebaseline.is_set():
+                self.control.rebaseline.clear()
+                mock_baseline = sample.copy()
+                print("[+] Baseline re-set from a viewer.", flush=True)
+            sample = sample - mock_baseline
 
             self.outlet.push_sample(sample.tolist(), local_clock())
 
@@ -278,12 +327,23 @@ class ArtinisOctaPortaLSL:
         settler = BaselineSettler() if self.mode == "od" else None
         current_sample = np.zeros(self.num_channels, dtype=np.float32)
 
+        self.control = ControlListener()
+        self.control.start()
+
         print("\n[*] Live fNIRS streaming active on LSL. (Press Ctrl+C to stop)\n", flush=True)
 
         dt = 1.0 / self.sample_rate
 
         while self.running:
             try:
+                if self.control.rebaseline.is_set():
+                    self.control.rebaseline.clear()
+                    if settler is None or settler.settled:
+                        # Measured live: no gap and no startup plateau, levels re-zero within about 0.2 s.
+                        # Its return value is meaningless, so success can't be read from it.
+                        self.sdk.artinis_set_baseline()
+                        print("[+] Baseline re-set from a viewer. Startup light levels above are now out of date.", flush=True)
+
                 self.sdk.artinis_get_concentrations_tsi(
                     ctypes.byref(n_samples),
                     buf_od,
@@ -342,6 +402,8 @@ class ArtinisOctaPortaLSL:
 
     def stop(self):
         self.running = False
+        if self.control is not None:
+            self.control.stopping.set()
         if self.sdk:
             try:
                 self.sdk.artinis_stop_portable_acquisition()

@@ -1,6 +1,7 @@
 """fNIRS visualizer: stream layout, MBLL physics, contact quality and the live display path."""
 import os
 import sys
+import time
 
 import numpy as np
 import pytest
@@ -490,6 +491,93 @@ def test_watch_label_hides_when_the_stream_goes_quiet(window):
     window.watch.last_seen -= fv.WatchHeartRate.GONE_AFTER_SEC + 1.0
     window.update_watch()
     assert window.lbl_watch.isHidden()
+
+
+class FakeControlOutlet:
+    def __init__(self, listening=True):
+        self.listening, self.sent = listening, []
+
+    def have_consumers(self):
+        return self.listening
+
+    def push_sample(self, sample):
+        self.sent.append(sample)
+
+
+def attached_window_with_data(window):
+    window.attach_stream(fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16), 16, SRATE)
+    window.push_samples(np.full((100, 16), 0.2))
+    window.startup_levels = (np.full(8, 1.3), np.full(8, 1.3))
+
+
+def test_rebaseline_sends_the_command_then_starts_over(window, monkeypatch):
+    attached_window_with_data(window)
+    window.control_outlet = FakeControlOutlet()
+    monkeypatch.setattr(fv.QtCore.QTimer, "singleShot", lambda ms, callback: None)
+    window.rebaseline_device()
+    assert window.control_outlet.sent == [[fv.REBASELINE_COMMAND]]
+    assert not window.btn_rebaseline.isEnabled()
+    assert window.sample_count == 100  # Frames keep their old baseline until the device has settled
+
+    window.last_quality_time = time.monotonic()  # Quality was measured a moment ago
+    window.finish_rebaseline()
+    assert window.sample_count == 0 and not window.is_calibrated
+    assert window.startup_levels is None
+    assert window.btn_rebaseline.isEnabled()
+    window.push_samples(np.full((20, 16), 0.001))
+    assert window.is_calibrated and window.baseline[0] == pytest.approx(0.001)
+    window.redraw()  # The first redraw has no earlier quality result to use
+
+
+def test_rebaseline_changes_nothing_when_the_bridge_isnt_listening(window):
+    attached_window_with_data(window)
+    window.control_outlet = FakeControlOutlet(listening=False)
+    window.rebaseline_device()
+    assert window.control_outlet.sent == []
+    assert window.sample_count == 100 and window.startup_levels is not None
+    assert "isn't listening" in window.lbl_status.text()
+
+
+def test_rebaseline_before_connecting_only_explains(window):
+    assert window.control_outlet is None
+    window.rebaseline_device()
+    assert "isn't listening" in window.lbl_status.text()
+
+
+def test_control_stream_is_never_mistaken_for_fnirs_data():
+    from bridges import artinis_to_lsl as bridge
+
+    assert bridge.CONTROL_STREAM_NAME == fv.CONTROL_STREAM_NAME
+    assert bridge.REBASELINE_COMMAND == fv.REBASELINE_COMMAND
+    assert not fv.is_fnirs_stream(fv.CONTROL_STREAM_NAME, "Control")
+
+
+def test_bridge_hears_a_viewer_command_over_real_lsl():
+    from pylsl import StreamInfo, StreamOutlet
+    from bridges.artinis_to_lsl import ControlListener
+
+    outlet = StreamOutlet(StreamInfo(fv.CONTROL_STREAM_NAME, "Control", 1, 0.0, "string"))
+    listener = ControlListener()
+    listener.start()
+    try:
+        assert outlet.wait_for_consumers(timeout=15.0)
+        assert not listener.rebaseline.is_set()
+        outlet.push_sample(["something else"])
+        outlet.push_sample([fv.REBASELINE_COMMAND])
+        assert listener.rebaseline.wait(timeout=5.0)
+
+        # A viewer closes and a new one opens: the bridge must still hear it
+        listener.rebaseline.clear()
+        del outlet
+        time.sleep(1.0)
+        outlet = StreamOutlet(StreamInfo(fv.CONTROL_STREAM_NAME, "Control", 1, 0.0, "string"))
+        assert outlet.wait_for_consumers(timeout=15.0)
+        outlet.push_sample([fv.REBASELINE_COMMAND])
+        assert listener.rebaseline.wait(timeout=5.0)
+        assert listener.is_alive()
+    finally:
+        listener.stopping.set()
+        listener.join(timeout=3.0)
 
 
 def test_no_startup_levels_when_the_first_frame_is_already_baselined():

@@ -30,7 +30,7 @@ import pyqtgraph as pg
 
 # Try importing pylsl
 try:
-    from pylsl import ContinuousResolver, StreamInlet, resolve_streams
+    from pylsl import ContinuousResolver, StreamInfo, StreamInlet, StreamOutlet, resolve_streams
     HAS_LSL = True
 except ImportError:
     HAS_LSL = False
@@ -771,6 +771,10 @@ LOW_LIGHT_OD = 1.75
 # noise: none falsely confirmed at 16 or 20 s. Below 16 s, drift shared by all channels confirmed up to 17% of the time.
 # Not separable from a pulse: a real rhythmic movement inside the band, such as nodding at about 1 Hz.
 # A real pulse on the head reached 5-65 in the same window.
+# Same values as bridges/artinis_to_lsl.py
+CONTROL_STREAM_NAME = "OptodeBaselineControl"
+REBASELINE_COMMAND = "rebaseline"
+REBASELINE_SETTLE_MS = 500  # The device re-zeroes within about 0.2 s
 PULSE_CLEAR_STRENGTH = 5.0
 WATCH_AVERAGE_SEC = 20.0
 PULSE_MIN_CHANNELS = 3
@@ -817,6 +821,7 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         self.filter_enabled = True
 
         self.inlet = None
+        self.control_outlet = None
         self.stream_layout = None
         self.last_sample_time = None
         self.needs_redraw = False
@@ -953,8 +958,16 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         toolbar_layout.addWidget(self.btn_lsl)
 
         self.btn_zero = QtWidgets.QPushButton("🎯 Zero Baseline (I₀)", objectName="zero")
+        self.btn_zero.setToolTip("Re-zero this viewer's plots from the last 3 s. The device and recordings aren't affected.")
         self.btn_zero.clicked.connect(self.zero_baseline)
         toolbar_layout.addWidget(self.btn_zero)
+
+        self.btn_rebaseline = QtWidgets.QPushButton("🔄 Re-baseline", objectName="zero")
+        self.btn_rebaseline.setToolTip(
+            "After moving the cap: set a new baseline on the device, with no bridge restart. Anything recording this "
+            "stream gets a step at this moment. Start 760 and Start 850 go blank, as only a bridge restart measures them.")
+        self.btn_rebaseline.clicked.connect(self.rebaseline_device)
+        toolbar_layout.addWidget(self.btn_rebaseline)
 
         self.combo_view = QtWidgets.QComboBox()
         self.combo_view.addItems([
@@ -1186,6 +1199,28 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
             self.needs_redraw = True
             self.set_status("Stream: Baseline Calibrated (I₀ set)", "#3fb950")
 
+    def rebaseline_device(self):
+        if self.control_outlet is None or not self.control_outlet.have_consumers():
+            self.set_status("Stream: Bridge isn't listening, so the baseline is unchanged. Restart the bridge, wait a few seconds, then retry", "#e3b341")
+            return
+        self.control_outlet.push_sample([REBASELINE_COMMAND])
+        self.btn_rebaseline.setEnabled(False)
+        self.set_status("Stream: Re-baselining the device...", "#e3b341")
+        QtCore.QTimer.singleShot(REBASELINE_SETTLE_MS, self.finish_rebaseline)
+
+    def finish_rebaseline(self):
+        """Start over from the new baseline: older data would put a step into the filtered curves and the pulse check."""
+        self.sample_count = 0
+        self.is_calibrated = False
+        self.startup_levels = None  # They described the old cap position
+        self.quality = None
+        self.last_quality_time = 0.0  # Measure again on the next redraw, which needs a result
+        self.weak_since = [None] * 8
+        self.lbl_heart.setText("Pulse peak: --")
+        self.refresh_quality_table()
+        self.btn_rebaseline.setEnabled(True)
+        self.set_status("Stream: Re-baseline sent; pulse and contact return in about 16 s", "#3fb950")
+
     def on_zone_changed(self, index):
         self.active_zone = ZONES[index] if index < len(ZONES) else "FRONTAL"
         self.headmap_widget.set_zone(self.active_zone)
@@ -1289,6 +1324,10 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
             if not silent:
                 QtWidgets.QMessageBox.warning(self, "LSL Not Installed", "pylsl library is not installed.")
             return
+
+        if self.control_outlet is None:
+            # Open early: the bridge has to find this stream before it can hear a command
+            self.control_outlet = StreamOutlet(StreamInfo(CONTROL_STREAM_NAME, "Control", 1, 0.0, "string"))
 
         self.set_status("Stream: Searching LSL...", "#e3b341")
         QtWidgets.QApplication.processEvents()
