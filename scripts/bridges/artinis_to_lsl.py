@@ -57,6 +57,7 @@ class BaselineSettler:
         self.dropped = 0
         self.first_frame_time = None
         self.good_frames = 0
+        self.startup_levels = None  # Absolute OD per column, from the first frame if it was pre-baseline
 
     def accept(self, frame, now):
         """True once frames are safe to publish, including this one."""
@@ -64,6 +65,8 @@ class BaselineSettler:
             return True
         if self.first_frame_time is None:
             self.first_frame_time = now
+            if np.max(np.abs(frame)) >= self.MAX_OD:
+                self.startup_levels = frame.copy()
         self.good_frames = self.good_frames + 1 if np.max(np.abs(frame)) < self.MAX_OD else 0
         if self.good_frames >= self.FRAMES_NEEDED:
             self.settled = True
@@ -90,7 +93,8 @@ class ArtinisOctaPortaLSL:
         self.sdk = None
         self.outlet = None
 
-    def setup_lsl(self):
+    def setup_lsl(self, startup_levels=None):
+        """Create the outlet. startup_levels (absolute OD per column) goes into each channel's metadata."""
         if self.outlet is not None:
             return
 
@@ -117,6 +121,8 @@ class ArtinisOctaPortaLSL:
                 ch.append_child_value("receiver", f"R{rx}")
                 ch.append_child_value("transmitter", f"T{tx}")
                 ch.append_child_value("side", "right" if rx == 1 else "left")
+                if startup_levels is not None:
+                    ch.append_child_value("startup_od", f"{startup_levels[2 * (tx - 1) + wl]:.3f}")
 
         self.outlet = StreamOutlet(info)
         mode_str = f"MODE: {self.mode.upper()} (BT: {self.bt_address})"
@@ -233,7 +239,9 @@ class ArtinisOctaPortaLSL:
         battery = self.sdk.artinis_get_battery_status(0)
         print(f"[?] SDK battery value: {battery} (unverified meaning; check device indicator)", flush=True)
 
-        self.setup_lsl()
+        # In OD mode the outlet waits for the settler, because its metadata carries the startup levels
+        if self.mode != "od":
+            self.setup_lsl()
         self.running = True
 
         buf_od = (ctypes.c_double * 2000)()
@@ -291,13 +299,17 @@ class ArtinisOctaPortaLSL:
                                 print(f"[!] A channel is still above {settler.MAX_OD} OD after {settler.TIMEOUT_SEC:.0f} s; publishing anyway. Check optode contact.", flush=True)
                             else:
                                 print(f"[+] Baseline settled; held back {settler.dropped} frames.", flush=True)
+                            self.setup_lsl(settler.startup_levels)
+                            if settler.startup_levels is not None:
+                                print("[+] Startup light level (OD, lower = more light), T1..T8:", " ".join(
+                                    f"{level:.2f}" for level in np.max(settler.startup_levels.reshape(-1, 2), axis=1)), flush=True)
                         self.outlet.push_sample(frame.tolist(), local_clock())
                         current_sample[:] = frame
                         total_pushed += 1
 
                 now = time.time()
                 if now - last_new > 2.0 and not warned_stale:
-                    print(f"[!] No new data from device for {now - last_new:.1f}s (zero frames: {dropped_zero}, duplicate: {dropped_dup}). Check Bluetooth link / battery.", flush=True)
+                    print(f"[!] No new data from device for {now - last_new:.1f}s (zero frames: {dropped_zero}, duplicate: {dropped_dup}). If the optodes are off the head, room light is probably saturating the receivers; it resumes when they're back on. Otherwise check the Bluetooth link.", flush=True)
                     warned_stale = True
                 if now - last_stat >= 1.0:
                     print(f"[*] Stream @ {self.sample_rate}Hz | new: {total_pushed}/s | zero-dropped: {dropped_zero} | dup-dropped: {dropped_dup} | errs: {errors} | R1T1: {current_sample[0]:+.3f} R2T5: {current_sample[8]:+.3f}", flush=True)

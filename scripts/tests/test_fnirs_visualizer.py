@@ -238,6 +238,58 @@ def test_bridge_publishes_anyway_if_one_channel_never_settles():
     assert settler.timed_out
 
 
+def test_startup_light_uses_each_channels_weaker_wavelength():
+    layout = fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16)
+    values = [f"{1.0 + i / 100:.3f}" for i in range(16)]
+    levels = fv.startup_light_levels(values, layout)
+    assert levels[0] == pytest.approx(1.01)
+    assert levels[7] == pytest.approx(1.15)
+
+
+@pytest.mark.parametrize("values", [[""] * 16, ["1.0"] * 4, []])
+def test_streams_without_startup_light_report_none(values):
+    layout = fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16)
+    assert fv.startup_light_levels(values, layout) is None
+
+
+def test_low_light_flags_only_the_dim_transmitter(window):
+    # Levels from the real session after replugging: T5 stayed weak, the others worked
+    levels = np.array([1.675, 1.396, 1.058, 1.437, 1.793, 1.31, 1.189, 1.292])
+    window.show_startup_light(levels)
+    assert window.headmap_widget.low_light.tolist() == [False] * 4 + [True] + [False] * 3
+    assert "T5 (1.79)" in window.lbl_light.text()
+    window.show_startup_light(None)
+    assert not window.headmap_widget.low_light.any()
+    assert "not reported" in window.lbl_light.text()
+
+
+def test_bridge_publishes_startup_levels_in_stream_metadata():
+    from bridges.artinis_to_lsl import ArtinisOctaPortaLSL, BaselineSettler
+
+    settler = BaselineSettler()
+    plateau = np.arange(16, dtype=np.float32) / 10 + 0.6
+    settler.accept(plateau, 100.0)
+    assert settler.startup_levels == pytest.approx(plateau)
+
+    bridge = ArtinisOctaPortaLSL(mode="od", mock=True)
+    bridge.setup_lsl(settler.startup_levels)
+    channels = bridge.outlet.get_info().desc().child("channels")
+    channel, values = channels.child("channel"), []
+    while not channel.empty():
+        values.append(channel.child_value("startup_od"))
+        channel = channel.next_sibling("channel")
+    layout = fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16)
+    assert fv.startup_light_levels(values, layout)[1] == pytest.approx(0.9, abs=1e-3)
+
+
+def test_no_startup_levels_when_the_first_frame_is_already_baselined():
+    from bridges.artinis_to_lsl import BaselineSettler
+
+    settler = BaselineSettler()
+    settler.accept(np.full(16, 0.01), 100.0)
+    assert settler.startup_levels is None
+
+
 def test_time_axis_is_true_while_the_window_is_filling(window):
     window.attach_stream(fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16), 16, SRATE)
     window.push_samples(bridge_chunk(100))

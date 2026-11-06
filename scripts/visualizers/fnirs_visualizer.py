@@ -115,6 +115,20 @@ def parse_stream_layout(labels, units, channel_count):
     return StreamLayout(None, columns[0:2 * n_pairs:2], columns[1:2 * n_pairs:2], False)
 
 
+def startup_light_levels(values, layout):
+    """Per-channel startup OD from the stream metadata, or None if the stream doesn't report it.
+
+    Takes the higher of the two wavelengths: the channel is only as good as its weaker light path.
+    """
+    try:
+        levels = [float(value) for value in values]
+    except (TypeError, ValueError):
+        return None
+    if len(levels) <= max(layout.first + layout.second, default=-1):
+        return None
+    return np.maximum(np.array(levels)[layout.first], np.array(levels)[layout.second])
+
+
 def guess_signal_kind(samples):
     """OD sits near 0-4 while raw light counts are in the hundreds or more."""
     return KIND_INTENSITY if np.nanmedian(np.abs(samples)) > 150.0 else KIND_OD
@@ -283,8 +297,9 @@ class OptodeHeadMapWidget(QtWidgets.QFrame):
         self.active_zone = active_zone
         self.channel_values = np.zeros(8)
         self.channel_sci = np.full(8, np.nan)  # Unknown until measured
+        self.low_light = np.zeros(8, dtype=bool)
         self.hover_tx = None
-        self.setMinimumSize(300, 330)
+        self.setMinimumSize(300, 315)
         self.setMouseTracking(True)
         self.setToolTip("Click a transmitter to switch it between low power (LP) and high power (HP)")
         self.recompute_montage()
@@ -529,6 +544,10 @@ class OptodeHeadMapWidget(QtWidgets.QFrame):
             painter.setBrush(QtGui.QColor("#e3b341" if self.tx_powers[i] == "LP" else "#f0562e"))
             painter.setPen(QtGui.QPen(QtGui.QColor("#ffffff"), 1.2))
             painter.drawEllipse(QtCore.QPointF(px, py), 6.5, 6.5)
+            if self.low_light[i]:  # Dashed ring: little light reached the receiver at startup
+                painter.setBrush(QtCore.Qt.NoBrush)
+                painter.setPen(QtGui.QPen(QtGui.QColor("#ff7b72"), 1.6, QtCore.Qt.DashLine))
+                painter.drawEllipse(QtCore.QPointF(px, py), 10, 10)
 
             painter.setPen(QtGui.QColor("#c9d1d9"))
             self._set_font(painter, 6)
@@ -570,6 +589,9 @@ WEAK_SCI = 0.45
 GOOD_SCI = 0.70
 WEAK_HOLD_SEC = 30.0  # Longer than the display window, so one bad stretch can't trigger a hint
 STALE_STREAM_SEC = 3.0
+# Startup OD: about 1.82 looked like a no-light floor. A caution only, from one session's data: optodes
+# near 1.75-1.80 were sometimes weak and sometimes fine, so the live contact score has the final say.
+LOW_LIGHT_OD = 1.75
 LEVEL_JUMP_OD = 0.5  # Measured frame-to-frame steps on the head peak near 0.02 OD; SDK baseline jumps are 1.2-1.8
 DEFAULT_SCALE_UM = 1.0  # The manual gives no scale; task responses are typically around 1 uM
 
@@ -833,6 +855,9 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         self.lbl_hbo_peak = QtWidgets.QLabel("Peak ΔHbO: -- µM")
         self.lbl_hbo_peak.setStyleSheet("color: #ff4757; font-weight: bold;")
         self.lbl_sci_avg = QtWidgets.QLabel("Mean Optode Contact (SCI): --")
+        self.lbl_light = QtWidgets.QLabel("Startup Light: not reported")
+        self.lbl_light.setWordWrap(True)
+        self.lbl_light.setStyleSheet("color: #8b949e;")
         self.lbl_status = QtWidgets.QLabel()
         self.lbl_status.setWordWrap(True)
         self.set_status("Stream: Idle (Press Connect LSL)", "#e3b341")
@@ -840,6 +865,7 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         m_layout.addWidget(self.lbl_srate)
         m_layout.addWidget(self.lbl_hbo_peak)
         m_layout.addWidget(self.lbl_sci_avg)
+        m_layout.addWidget(self.lbl_light)
         m_layout.addWidget(self.lbl_status)
         sidebar_layout.addWidget(metrics_box)
 
@@ -867,6 +893,27 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
 
     def refresh_placement_guide(self):
         self.lbl_guide.setText(placement_guide_html(self.active_zone, self.headmap_widget.tx_powers))
+
+    def show_startup_light(self, levels):
+        """Show per-transmitter startup light, or that the stream doesn't report it."""
+        low = np.zeros(8, dtype=bool)
+        if levels is None:
+            self.lbl_light.setText("Startup Light: not reported")
+            self.lbl_light.setToolTip("")
+            self.lbl_light.setStyleSheet("color: #8b949e;")
+        else:
+            low[:len(levels)] = levels[:8] >= LOW_LIGHT_OD
+            self.lbl_light.setToolTip("Startup OD, lower means more light: " + ", ".join(
+                f"T{ch + 1} {level:.2f}" for ch, level in enumerate(levels[:8])))
+            if low.any():
+                flagged = ", ".join(f"T{ch + 1} ({levels[ch]:.2f})" for ch in np.flatnonzero(low))
+                self.lbl_light.setText(f"Low Startup Light: {flagged}")
+                self.lbl_light.setStyleSheet("color: #ff7b72; font-weight: bold;")
+            else:
+                self.lbl_light.setText("Startup Light: OK")
+                self.lbl_light.setStyleSheet("color: #3fb950;")
+        self.headmap_widget.low_light = low
+        self.headmap_widget.update()
 
     def on_powers_changed(self):
         self.refresh_placement_guide()
@@ -999,15 +1046,17 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
 
         self.inlet = StreamInlet(target_stream)
         info = self.inlet.info(timeout=2.0)  # Full info: the resolved one has no channel labels
-        labels, units = [], []
+        labels, units, startup = [], [], []
         channel = info.desc().child("channels").child("channel")
         while not channel.empty():
             labels.append(channel.child_value("label"))
             units.append(channel.child_value("unit"))
+            startup.append(channel.child_value("startup_od"))
             channel = channel.next_sibling("channel")
 
         self.attach_stream(parse_stream_layout(labels, units, info.channel_count()),
                            info.channel_count(), info.nominal_srate() or 25.0)
+        self.show_startup_light(startup_light_levels(startup, self.stream_layout))
         self.set_status(f"Stream: Connected ({target_stream.name()})" +
                         ("" if self.stream_layout.labelled else " - no channel labels, assuming odd 760 nm / even 850 nm"),
                         "#3fb950")
@@ -1076,7 +1125,7 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
                 self.set_status("Stream: Connected (data resumed)", "#3fb950")
             self.last_sample_time = now
         elif now - self.last_sample_time > STALE_STREAM_SEC:
-            self.set_status(f"Stream: No data for {now - self.last_sample_time:.0f} s", "#f85149")
+            self.set_status(f"Stream: No data for {now - self.last_sample_time:.0f} s (optodes off the head, or link lost)", "#f85149")
 
     def poll_and_update(self):
         if HAS_LSL and self.inlet:
