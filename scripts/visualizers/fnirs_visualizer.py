@@ -115,18 +115,15 @@ def parse_stream_layout(labels, units, channel_count):
     return StreamLayout(None, columns[0:2 * n_pairs:2], columns[1:2 * n_pairs:2], False)
 
 
-def startup_light_levels(values, layout):
-    """Per-channel startup OD from the stream metadata, or None if the stream doesn't report it.
-
-    Takes the higher of the two wavelengths: the channel is only as good as its weaker light path.
-    """
+def startup_levels_per_channel(values, layout):
+    """Startup OD per channel as (first wavelength, second wavelength), or None if the stream doesn't report it."""
     try:
-        levels = [float(value) for value in values]
+        levels = np.array([float(value) for value in values])
     except (TypeError, ValueError):
         return None
     if len(levels) <= max(layout.first + layout.second, default=-1):
         return None
-    return np.maximum(np.array(levels)[layout.first], np.array(levels)[layout.second])
+    return levels[layout.first], levels[layout.second]
 
 
 def guess_signal_kind(samples):
@@ -181,6 +178,60 @@ def scalp_coupling_index(first, second, sos_cardiac, min_samples):
         else:
             sci[ch] = max(0.0, float(np.corrcoef(card_first[:, ch], card_second[:, ch])[0, 1]))
     return sci
+
+
+PulseMetrics = namedtuple("PulseMetrics", "heart_hz channels_with_pulse own_hz strength size")
+
+
+def pulse_metrics(first, second, srate, sos_cardiac, min_seconds=8.0):
+    """Look for a heartbeat shared across channels. All values are NaN when it can't be measured.
+
+    strength is the spectral peak at the shared heart rate over the median of the cardiac band. Unlike
+    the scalp coupling index it stays low for noise that is merely common to both wavelengths.
+    """
+    n_channels = first.shape[1]
+    nan = np.full(n_channels, np.nan)
+    if not HAS_SCIPY or first.shape[0] < srate * min_seconds or srate < 5.0:
+        return PulseMetrics(np.nan, 0, nan, nan, nan)
+    nperseg = min(first.shape[0], int(srate * 10))
+    freqs, power_first = signal.welch(first, srate, nperseg=nperseg, axis=0, detrend="linear")
+    _, power_second = signal.welch(second, srate, nperseg=nperseg, axis=0, detrend="linear")
+    band = (freqs >= 0.8) & (freqs <= 2.5)
+    band_freqs = freqs[band]
+    power = (power_first + power_second)[band]
+    floor = np.maximum(np.median(power, axis=0), 1e-18)
+    ratio = power / floor
+
+    # Channels vote with their whole spectrum, so one noisy channel can't pick the heart rate
+    consensus = int(np.argmax(np.sum(np.log(np.maximum(ratio, 1.0)), axis=1)))
+    near = np.abs(band_freqs - band_freqs[consensus]) <= 0.15
+    strength = np.max(ratio[near], axis=0)
+    channels_with_pulse = int(np.sum(strength >= PULSE_CLEAR_STRENGTH))
+    shared = channels_with_pulse >= PULSE_MIN_CHANNELS
+    heart_hz = float(band_freqs[consensus]) if shared else np.nan
+    own_hz = band_freqs[np.argmax(ratio, axis=0)]
+    size = zero_phase_filter(sos_cardiac, first).std(axis=0) if sos_cardiac is not None else nan
+    return PulseMetrics(heart_hz, channels_with_pulse if shared else 0, own_hz, strength, size)
+
+
+def contact_score(sci, pulse):
+    """Scalp coupling index, discounted when no clear pulse backs it up. NaN when either is unmeasured."""
+    if np.isnan(pulse.heart_hz):
+        return sci * NO_SHARED_PULSE_DISCOUNT * np.where(np.isnan(pulse.strength), np.nan, 1.0)
+    return sci * np.minimum(1.0, pulse.strength / PULSE_CLEAR_STRENGTH)
+
+
+def channel_notes(light_first, light_second, strength, shared_pulse=True):
+    """Plain-language notes per channel. These only describe the numbers beside them, nothing acts on them."""
+    notes = []
+    for ch, value in enumerate(strength):
+        parts = []
+        if light_first is not None and max(light_first[ch], light_second[ch]) >= LOW_LIGHT_OD:
+            parts.append("low light at start")
+        if not np.isnan(value) and (value < PULSE_CLEAR_STRENGTH or not shared_pulse):
+            parts.append("pulse unclear")
+        notes.append(", ".join(parts))
+    return notes
 
 
 # ==============================================================================
@@ -297,7 +348,6 @@ class OptodeHeadMapWidget(QtWidgets.QFrame):
         self.active_zone = active_zone
         self.channel_values = np.zeros(8)
         self.channel_sci = np.full(8, np.nan)  # Unknown until measured
-        self.low_light = np.zeros(8, dtype=bool)
         self.hover_tx = None
         self.setMinimumSize(300, 315)
         self.setMouseTracking(True)
@@ -544,10 +594,6 @@ class OptodeHeadMapWidget(QtWidgets.QFrame):
             painter.setBrush(QtGui.QColor("#e3b341" if self.tx_powers[i] == "LP" else "#f0562e"))
             painter.setPen(QtGui.QPen(QtGui.QColor("#ffffff"), 1.2))
             painter.drawEllipse(QtCore.QPointF(px, py), 6.5, 6.5)
-            if self.low_light[i]:  # Dashed ring: little light reached the receiver at startup
-                painter.setBrush(QtCore.Qt.NoBrush)
-                painter.setPen(QtGui.QPen(QtGui.QColor("#ff7b72"), 1.6, QtCore.Qt.DashLine))
-                painter.drawEllipse(QtCore.QPointF(px, py), 10, 10)
 
             painter.setPen(QtGui.QColor("#c9d1d9"))
             self._set_font(painter, 6)
@@ -574,7 +620,7 @@ QLabel { background: transparent; border: none; color: #c9d1d9; }
 QLabel#title { font-size: 15px; font-weight: bold; color: #58a6ff; }
 QLabel#strong { font-weight: bold; }
 QLabel#guide { font-size: 10px; }
-QLabel#hint { color: #e3b341; font-size: 10px; font-weight: bold; }
+QLabel#hint { color: #8b949e; font-size: 10px; }
 QGroupBox { font-weight: bold; color: #8b949e; border: 1px solid #30363d; border-radius: 6px; margin-top: 8px; padding-top: 6px; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
 QComboBox, QDoubleSpinBox { background-color: #21262d; color: #79c0ff; font-weight: bold; padding: 4px 8px; border: 1px solid #30363d; border-radius: 4px; }
@@ -589,9 +635,31 @@ WEAK_SCI = 0.45
 GOOD_SCI = 0.70
 WEAK_HOLD_SEC = 30.0  # Longer than the display window, so one bad stretch can't trigger a hint
 STALE_STREAM_SEC = 3.0
-# Startup OD: about 1.82 looked like a no-light floor. A caution only, from one session's data: optodes
-# near 1.75-1.80 were sometimes weak and sometimes fine, so the live contact score has the final say.
+# Startup OD: about 1.82 looked like a no-light floor. Note text only, from one session's data: optodes
+# near 1.75-1.80 were sometimes weak and sometimes fine.
 LOW_LIGHT_OD = 1.75
+# Calibrated for the viewer's 20 s window. In 1500 simulated windows of 8 pink-noise channels, 3 channels
+# reached 5 only 0.27% of the time and never reached 6. A real pulse on the head reached 5-8 in the same window.
+PULSE_CLEAR_STRENGTH = 5.0
+PULSE_MIN_CHANNELS = 3
+NO_SHARED_PULSE_DISCOUNT = 0.4
+QUALITY_PERIOD_SEC = 1.0
+QUALITY_COLUMNS = (
+    ("Channel", "Channel and the head side it is on"),
+    ("Optodes", "Transmitter and receiver sockets"),
+    ("Site", "Nearest 10-10 position, approximate"),
+    ("Type", "Optode type you set: LP or HP"),
+    ("Start 760", "Startup OD at 760 nm. Lower means more light reached the receiver"),
+    ("Start 850", "Startup OD at 850 nm. Lower means more light reached the receiver"),
+    ("Mean ΔOD", "Mean change from the viewer baseline at 760 nm"),
+    ("SD ΔOD", "Signal spread at 760 nm over the window. Large values suggest movement"),
+    ("Peak Hz", "This channel's own strongest frequency in the cardiac band"),
+    ("Pulse", "Spectral peak at the shared heart rate, over the band median"),
+    ("Pulse size", "Cardiac-band amplitude at 760 nm, in OD"),
+    ("SCI", "Scalp coupling index: 760/850 nm correlation in the cardiac band"),
+    ("Contact", "SCI discounted when no clear pulse backs it up. Sets the head map colors"),
+    ("Notes", "Plain notes on the numbers. Nothing acts on them"),
+)
 LEVEL_JUMP_OD = 0.5  # Measured frame-to-frame steps on the head peak near 0.02 OD; SDK baseline jumps are 1.2-1.8
 DEFAULT_SCALE_UM = 1.0  # The manual gives no scale; task responses are typically around 1 uM
 
@@ -619,6 +687,11 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         self.last_sample_time = None
         self.needs_redraw = False
         self.weak_since = [None] * 8
+        self.startup_levels = None
+        self.quality = None
+        self.last_quality_time = 0.0
+        self.samples_received = 0
+        self.stream_start_time = None
         self.reset_buffers()
         self.mbll_matrix = compute_mbll_matrix(MONTAGES[self.active_zone]["distance_cm"])
 
@@ -807,6 +880,10 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         self.chk_filter.stateChanged.connect(self.on_filter_toggled)
         controls_layout.addWidget(self.chk_filter)
 
+        self.chk_table = QtWidgets.QCheckBox("Channel Table")
+        self.chk_table.setChecked(True)
+        controls_layout.addWidget(self.chk_table)
+
         main_layout.addWidget(toolbar_card)
 
         # Split Layout
@@ -855,9 +932,7 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         self.lbl_hbo_peak = QtWidgets.QLabel("Peak ΔHbO: -- µM")
         self.lbl_hbo_peak.setStyleSheet("color: #ff4757; font-weight: bold;")
         self.lbl_sci_avg = QtWidgets.QLabel("Mean Optode Contact (SCI): --")
-        self.lbl_light = QtWidgets.QLabel("Startup Light: not reported")
-        self.lbl_light.setWordWrap(True)
-        self.lbl_light.setStyleSheet("color: #8b949e;")
+        self.lbl_heart = QtWidgets.QLabel("Heart Rate: --")
         self.lbl_status = QtWidgets.QLabel()
         self.lbl_status.setWordWrap(True)
         self.set_status("Stream: Idle (Press Connect LSL)", "#e3b341")
@@ -865,7 +940,7 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         m_layout.addWidget(self.lbl_srate)
         m_layout.addWidget(self.lbl_hbo_peak)
         m_layout.addWidget(self.lbl_sci_avg)
-        m_layout.addWidget(self.lbl_light)
+        m_layout.addWidget(self.lbl_heart)
         m_layout.addWidget(self.lbl_status)
         sidebar_layout.addWidget(metrics_box)
 
@@ -879,7 +954,11 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         pg.setConfigOptions(antialias=True)
         self.plot_widget = pg.GraphicsLayoutWidget()
         self.plot_widget.setBackground('#0d1117')
-        plot_layout.addWidget(self.plot_widget)
+        plot_layout.addWidget(self.plot_widget, 1)
+
+        self.quality_table = self.build_quality_table()
+        self.chk_table.toggled.connect(self.quality_table.setVisible)
+        plot_layout.addWidget(self.quality_table)
 
         content_layout.addWidget(plot_card, 1)
         main_layout.addLayout(content_layout, 1)
@@ -894,29 +973,63 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
     def refresh_placement_guide(self):
         self.lbl_guide.setText(placement_guide_html(self.active_zone, self.headmap_widget.tx_powers))
 
-    def show_startup_light(self, levels):
-        """Show per-transmitter startup light, or that the stream doesn't report it."""
-        low = np.zeros(8, dtype=bool)
-        if levels is None:
-            self.lbl_light.setText("Startup Light: not reported")
-            self.lbl_light.setToolTip("")
-            self.lbl_light.setStyleSheet("color: #8b949e;")
-        else:
-            low[:len(levels)] = levels[:8] >= LOW_LIGHT_OD
-            self.lbl_light.setToolTip("Startup OD, lower means more light: " + ", ".join(
-                f"T{ch + 1} {level:.2f}" for ch, level in enumerate(levels[:8])))
-            if low.any():
-                flagged = ", ".join(f"T{ch + 1} ({levels[ch]:.2f})" for ch in np.flatnonzero(low))
-                self.lbl_light.setText(f"Low Startup Light: {flagged}")
-                self.lbl_light.setStyleSheet("color: #ff7b72; font-weight: bold;")
-            else:
-                self.lbl_light.setText("Startup Light: OK")
-                self.lbl_light.setStyleSheet("color: #3fb950;")
-        self.headmap_widget.low_light = low
-        self.headmap_widget.update()
+    def build_quality_table(self):
+        table = QtWidgets.QTableWidget(8, len(QUALITY_COLUMNS))
+        table.setHorizontalHeaderLabels([name for name, _ in QUALITY_COLUMNS])
+        for col, (_, tip) in enumerate(QUALITY_COLUMNS):
+            table.horizontalHeaderItem(col).setToolTip(tip)
+            for row in range(8):
+                item = QtWidgets.QTableWidgetItem("--")
+                item.setTextAlignment(QtCore.Qt.AlignCenter)
+                table.setItem(row, col, item)
+        table.verticalHeader().hide()
+        table.verticalHeader().setDefaultSectionSize(20)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        table.setFocusPolicy(QtCore.Qt.NoFocus)
+        table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        table.setFixedHeight(20 * 8 + 28)
+        table.setStyleSheet(
+            "QTableWidget { background-color: #0d1117; color: #c9d1d9; gridline-color: #21262d; border: none; font-size: 11px; }"
+            "QHeaderView::section { background-color: #161b22; color: #8b949e; border: none; padding: 3px; font-weight: bold; font-size: 11px; }"
+        )
+        return table
+
+    def refresh_quality_table(self):
+        """Show every per-channel number we have. Unmeasured values stay as '--'."""
+        def fmt(values, ch, decimals):
+            if values is None or ch >= len(values) or np.isnan(values[ch]):
+                return "--"
+            return f"{values[ch]:.{decimals}f}"
+
+        montage = MONTAGES[self.active_zone]
+        q = self.quality or {}
+        light_first, light_second = self.startup_levels if self.startup_levels is not None else (None, None)
+        strength = q.get("strength", np.full(8, np.nan))
+        notes = channel_notes(light_first, light_second, strength, q.get("shared_pulse", False)) if len(strength) else []
+        for ch in range(8):
+            row = [
+                f"C{ch + 1} {'R' if ch < 4 else 'L'}",
+                f"T{ch + 1}-R{ch // 4 + 1}",
+                montage["sites"][ch],
+                self.headmap_widget.tx_powers[ch],
+                fmt(light_first, ch, 2),
+                fmt(light_second, ch, 2),
+                fmt(q.get("mean"), ch, 4),
+                fmt(q.get("sd"), ch, 4),
+                fmt(q.get("own_hz"), ch, 2),
+                fmt(q.get("strength"), ch, 1),
+                fmt(q.get("size"), ch, 4),
+                fmt(q.get("sci"), ch, 2),
+                fmt(q.get("contact"), ch, 2),
+                notes[ch] if ch < len(notes) else "",
+            ]
+            for col, text in enumerate(row):
+                self.quality_table.item(ch, col).setText(text)
 
     def on_powers_changed(self):
         self.refresh_placement_guide()
+        self.refresh_quality_table()
         self.weak_since = [None] * 8  # Re-evaluate the swapped optodes from scratch
 
     def on_view_mode_changed(self, index):
@@ -936,6 +1049,7 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         self.headmap_widget.set_zone(self.active_zone)
         self.mbll_matrix = compute_mbll_matrix(MONTAGES[self.active_zone]["distance_cm"])
         self.refresh_placement_guide()
+        self.refresh_quality_table()
         self.weak_since = [None] * 8
         self.rebuild_plots()
 
@@ -1056,7 +1170,8 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
 
         self.attach_stream(parse_stream_layout(labels, units, info.channel_count()),
                            info.channel_count(), info.nominal_srate() or 25.0)
-        self.show_startup_light(startup_light_levels(startup, self.stream_layout))
+        self.startup_levels = startup_levels_per_channel(startup, self.stream_layout)
+        self.refresh_quality_table()
         self.set_status(f"Stream: Connected ({target_stream.name()})" +
                         ("" if self.stream_layout.labelled else " - no channel labels, assuming odd 760 nm / even 850 nm"),
                         "#3fb950")
@@ -1069,6 +1184,11 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         self.init_filters()
         self.reset_buffers()
         self.weak_since = [None] * 8
+        self.startup_levels = None
+        self.quality = None
+        self.last_quality_time = 0.0
+        self.samples_received = 0
+        self.stream_start_time = time.monotonic()
         self.last_sample_time = time.monotonic()
         self.lbl_srate.setText(f"Sampling Rate: {self.srate:.1f} Hz")
 
@@ -1120,6 +1240,7 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
             return
         now = time.monotonic()
         if samples:
+            self.samples_received += len(samples)
             self.push_samples(np.asarray(samples, dtype=np.float64))
             if now - self.last_sample_time > STALE_STREAM_SEC:
                 self.set_status("Stream: Connected (data resumed)", "#3fb950")
@@ -1146,11 +1267,8 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
             first, second, self.baseline[layout.first], self.baseline[layout.second], layout.kind,
             self.mbll_matrix, sos=self.sos_hrf if self.filter_enabled else None,
         )
-        # HbO and HbR are unrelated in the cardiac band, so SCI needs the wavelength signals
-        if layout.kind == KIND_CONC:
-            sci = np.full(len(layout.first), np.nan)
-        else:
-            sci = scalp_coupling_index(first, second, self.sos_cardiac, int(self.srate * 5.0))
+        if time.monotonic() - self.last_quality_time >= QUALITY_PERIOD_SEC:
+            self.update_quality(first, second)
 
         traces = (hbo, hbr, hbo + hbr) if self.mode_mbll else (first, second)
         n_channels = len(layout.first)
@@ -1166,16 +1284,43 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
                     curve.setData([], [])
 
         latest_hbo = hbo[-1, :]
-        self.headmap_widget.update_metrics(latest_hbo, sci)
+        self.headmap_widget.update_metrics(latest_hbo, self.quality["contact"])
         self.lbl_hbo_peak.setText(f"Peak ΔHbO: {np.max(np.abs(latest_hbo)):.2f} µM")
-        if np.isfinite(sci).any():
-            avg_sci = float(np.nanmean(sci))
-            self.lbl_sci_avg.setText(f"Mean Optode Contact (SCI): {avg_sci:.2f}")
-            self.lbl_sci_avg.setStyleSheet("color: #3fb950;" if avg_sci >= 0.65 else "color: #d29922;" if avg_sci >= WEAK_SCI else "color: #f85149;")
+
+    def update_quality(self, first, second):
+        """Recompute the slower per-channel measures. Once a second is plenty for a 20 s window."""
+        self.last_quality_time = time.monotonic()
+        # HbO and HbR are unrelated in the cardiac band, so SCI needs the wavelength signals
+        if self.stream_layout.kind == KIND_CONC:
+            sci = np.full(first.shape[1], np.nan)
         else:
-            self.lbl_sci_avg.setText("Mean Optode Contact (SCI): not measured")
+            sci = scalp_coupling_index(first, second, self.sos_cardiac, int(self.srate * 5.0))
+        pulse = pulse_metrics(first, second, self.srate, self.sos_cardiac)
+        contact = contact_score(sci, pulse)
+        baseline = self.baseline[self.stream_layout.first]
+        self.quality = {
+            "mean": first.mean(axis=0) - baseline, "sd": first.std(axis=0), "own_hz": pulse.own_hz,
+            "strength": pulse.strength, "size": pulse.size, "sci": sci, "contact": contact,
+            "shared_pulse": not np.isnan(pulse.heart_hz),
+        }
+
+        if np.isfinite(contact).any():
+            avg = float(np.nanmean(contact))
+            self.lbl_sci_avg.setText(f"Mean Contact: {avg:.2f}  (SCI {np.nanmean(sci):.2f})")
+            self.lbl_sci_avg.setStyleSheet("color: #3fb950;" if avg >= 0.65 else "color: #d29922;" if avg >= WEAK_SCI else "color: #f85149;")
+        else:
+            self.lbl_sci_avg.setText("Mean Contact: not measured")
             self.lbl_sci_avg.setStyleSheet("color: #8b949e;")
-        self.update_power_hint(sci)
+        if np.isnan(pulse.heart_hz):
+            self.lbl_heart.setText("Heart Rate: no shared pulse found")
+        else:
+            self.lbl_heart.setText(f"Heart Rate: {pulse.heart_hz * 60:.0f} bpm  ({pulse.channels_with_pulse} of {first.shape[1]} channels)")
+        rate = f"Sampling Rate: {self.srate:.1f} Hz"
+        if self.stream_start_time is not None and self.samples_received:
+            rate += f" (actual {self.samples_received / max(time.monotonic() - self.stream_start_time, 1e-3):.1f})"
+        self.lbl_srate.setText(rate)
+        self.refresh_quality_table()
+        self.update_power_hint(contact)
 
     def update_power_hint(self, sci):
         """Suggest a physical optode swap when a channel stays weak. Optode type can't be changed from software."""
@@ -1193,9 +1338,9 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
                 (weak_lp if self.headmap_widget.tx_powers[ch] == "LP" else weak_hp).append(f"T{ch + 1}")
         lines = []
         if weak_lp:
-            lines.append(f"Weak on LP: {', '.join(weak_lp)}. Check skin contact and hair, then try an HP optode.")
+            lines.append(f"Note: weak on LP: {', '.join(weak_lp)}. Check skin contact and hair, then try an HP optode.")
         if weak_hp:
-            lines.append(f"Weak on HP: {', '.join(weak_hp)}. Check skin contact and hair.")
+            lines.append(f"Note: weak on HP: {', '.join(weak_hp)}. Check skin contact and hair.")
         self.lbl_power_hint.setText("\n".join(lines))
         self.lbl_power_hint.setVisible(bool(lines))
 

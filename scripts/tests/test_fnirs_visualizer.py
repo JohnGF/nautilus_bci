@@ -238,29 +238,101 @@ def test_bridge_publishes_anyway_if_one_channel_never_settles():
     assert settler.timed_out
 
 
-def test_startup_light_uses_each_channels_weaker_wavelength():
+def test_startup_levels_keep_both_wavelengths():
     layout = fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16)
     values = [f"{1.0 + i / 100:.3f}" for i in range(16)]
-    levels = fv.startup_light_levels(values, layout)
-    assert levels[0] == pytest.approx(1.01)
-    assert levels[7] == pytest.approx(1.15)
+    first, second = fv.startup_levels_per_channel(values, layout)
+    assert first[0] == pytest.approx(1.00) and second[0] == pytest.approx(1.01)
+    assert first[7] == pytest.approx(1.14) and second[7] == pytest.approx(1.15)
 
 
 @pytest.mark.parametrize("values", [[""] * 16, ["1.0"] * 4, []])
-def test_streams_without_startup_light_report_none(values):
+def test_streams_without_startup_levels_report_none(values):
     layout = fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16)
-    assert fv.startup_light_levels(values, layout) is None
+    assert fv.startup_levels_per_channel(values, layout) is None
 
 
-def test_low_light_flags_only_the_dim_transmitter(window):
+def test_low_light_is_only_a_note():
     # Levels from the real session after replugging: T5 stayed weak, the others worked
-    levels = np.array([1.675, 1.396, 1.058, 1.437, 1.793, 1.31, 1.189, 1.292])
-    window.show_startup_light(levels)
-    assert window.headmap_widget.low_light.tolist() == [False] * 4 + [True] + [False] * 3
-    assert "T5 (1.79)" in window.lbl_light.text()
-    window.show_startup_light(None)
-    assert not window.headmap_widget.low_light.any()
-    assert "not reported" in window.lbl_light.text()
+    first = np.array([1.675, 1.396, 1.058, 1.437, 1.783, 1.31, 1.189, 1.292])
+    second = np.array([1.652, 1.294, 0.883, 1.338, 1.793, 1.146, 0.969, 1.131])
+    notes = fv.channel_notes(first, second, np.full(8, 20.0))
+    assert notes[4] == "low light at start"
+    assert all(note == "" for ch, note in enumerate(notes) if ch != 4)
+
+
+def pulse_fixture(sos_seed=0, n=1000):
+    """5 channels with a 1.1 Hz pulse; 3 with noise shared across wavelengths but no pulse."""
+    rng = np.random.default_rng(sos_seed)
+    t = np.arange(n) / SRATE
+    first = rng.normal(0, 0.0005, (n, 8))
+    second = rng.normal(0, 0.0005, (n, 8))
+    first[:, :5] += 0.003 * np.sin(2 * np.pi * 1.1 * t)[:, None]
+    second[:, :5] += 0.0025 * np.sin(2 * np.pi * 1.1 * t)[:, None]
+    shared = rng.normal(0, 0.002, (n, 3))
+    first[:, 5:] += shared
+    second[:, 5:] += shared
+    return first, second
+
+
+@pytest.fixture
+def cardiac_sos():
+    return fv.signal.butter(2, [0.8 / 25, 2.0 / 25], btype="bandpass", output="sos")
+
+
+def test_pulse_metrics_find_the_shared_heart_rate(cardiac_sos):
+    first, second = pulse_fixture()
+    pulse = fv.pulse_metrics(first, second, SRATE, cardiac_sos)
+    assert pulse.heart_hz == pytest.approx(1.1, abs=0.1)
+    assert pulse.channels_with_pulse == 5
+    assert (pulse.strength[:5] >= fv.PULSE_CLEAR_STRENGTH).all()
+    assert (pulse.strength[5:] < fv.PULSE_CLEAR_STRENGTH).all()
+
+
+def test_contact_score_discounts_correlated_noise_that_has_no_pulse(cardiac_sos):
+    first, second = pulse_fixture()
+    sci = fv.scalp_coupling_index(first, second, cardiac_sos, 250)
+    assert sci[5:].min() > 0.85  # SCI alone is fooled by noise common to both wavelengths
+    contact = fv.contact_score(sci, fv.pulse_metrics(first, second, SRATE, cardiac_sos))
+    assert contact[:5].min() > 0.9
+    assert contact[5:].max() < 0.8 * sci[5:].min()
+
+
+def test_pulse_metrics_need_enough_data(cardiac_sos):
+    first, second = pulse_fixture(n=100)
+    pulse = fv.pulse_metrics(first, second, SRATE, cardiac_sos)
+    assert np.isnan(pulse.heart_hz) and np.isnan(pulse.strength).all()
+
+
+def test_two_channels_alone_do_not_confirm_a_pulse(cardiac_sos):
+    first, second = pulse_fixture()
+    first[:, 2:5] -= 0.003 * np.sin(2 * np.pi * 1.1 * np.arange(1000) / SRATE)[:, None]
+    second[:, 2:5] -= 0.0025 * np.sin(2 * np.pi * 1.1 * np.arange(1000) / SRATE)[:, None]
+    pulse = fv.pulse_metrics(first, second, SRATE, cardiac_sos)
+    assert np.isnan(pulse.heart_hz) and pulse.channels_with_pulse == 0
+    sci = fv.scalp_coupling_index(first, second, cardiac_sos, 250)
+    assert fv.contact_score(sci, pulse)[0] < fv.WEAK_SCI
+
+
+def test_notes_say_pulse_unclear_when_no_pulse_is_shared():
+    notes = fv.channel_notes(None, None, np.full(8, 20.0), shared_pulse=False)
+    assert notes == ["pulse unclear"] * 8
+
+
+def test_table_shows_measurements_and_keeps_unknowns_blank(window):
+    window.attach_stream(fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16), 16, SRATE)
+    first, second = pulse_fixture()
+    frames = np.zeros((1000, 16))
+    frames[:, 0::2], frames[:, 1::2] = first, second
+    window.push_samples(frames)
+    window.poll_and_update()
+    headers = [name for name, _ in fv.QUALITY_COLUMNS]
+    pulse_col, start_col, note_col = headers.index("Pulse"), headers.index("Start 760"), headers.index("Notes")
+    assert float(window.quality_table.item(0, pulse_col).text()) >= fv.PULSE_CLEAR_STRENGTH
+    assert window.quality_table.item(0, start_col).text() == "--"
+    assert window.quality_table.item(7, note_col).text() == "pulse unclear"
+    assert "bpm" in window.lbl_heart.text() and "5 of 8" in window.lbl_heart.text()
+    assert window.headmap_widget.channel_sci[0] > 0.9 > window.headmap_widget.channel_sci[7]
 
 
 def test_bridge_publishes_startup_levels_in_stream_metadata():
@@ -279,7 +351,8 @@ def test_bridge_publishes_startup_levels_in_stream_metadata():
         values.append(channel.child_value("startup_od"))
         channel = channel.next_sibling("channel")
     layout = fv.parse_stream_layout(BRIDGE_LABELS, ["OD"] * 16, 16)
-    assert fv.startup_light_levels(values, layout)[1] == pytest.approx(0.9, abs=1e-3)
+    first, second = fv.startup_levels_per_channel(values, layout)
+    assert first[1] == pytest.approx(0.8, abs=1e-3) and second[1] == pytest.approx(0.9, abs=1e-3)
 
 
 def test_no_startup_levels_when_the_first_frame_is_already_baselined():
