@@ -988,7 +988,11 @@ class fNIRSVisualizerWindow(QtWidgets.QMainWindow):
         table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
         table.setFocusPolicy(QtCore.Qt.NoFocus)
         table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-        table.setFixedHeight(20 * 8 + 28)
+        notes_col = len(QUALITY_COLUMNS) - 1
+        table.horizontalHeader().setSectionResizeMode(notes_col, QtWidgets.QHeaderView.Fixed)
+        table.setColumnWidth(notes_col, 210)
+        table.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        table.setFixedHeight(20 * 8 + 40)
         table.setStyleSheet(
             "QTableWidget { background-color: #0d1117; color: #c9d1d9; gridline-color: #21262d; border: none; font-size: 11px; }"
             "QHeaderView::section { background-color: #161b22; color: #8b949e; border: none; padding: 3px; font-weight: bold; font-size: 11px; }"
